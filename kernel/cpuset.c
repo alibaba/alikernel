@@ -2456,6 +2456,22 @@ void cpuset_cpus_allowed(struct task_struct *tsk, struct cpumask *pmask)
 	spin_unlock_irqrestore(&callback_lock, flags);
 }
 
+void get_tsk_cpu_allowed(struct task_struct *tsk, struct cpumask *pmask)
+{
+	unsigned long flags;
+	struct cpuset *cs = NULL;
+
+	spin_lock_irqsave(&callback_lock, flags);
+	rcu_read_lock();
+	cs = task_cs(tsk);
+	if (cs)
+		cpumask_and(pmask, cs->cpus_allowed, cpu_possible_mask);
+	else
+		cpumask_copy(pmask, cpu_possible_mask);
+	rcu_read_unlock();
+	spin_unlock_irqrestore(&callback_lock, flags);
+}
+
 void cpuset_cpus_allowed_fallback(struct task_struct *tsk)
 {
 	rcu_read_lock();

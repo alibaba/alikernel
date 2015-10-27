@@ -49,6 +49,7 @@ struct pid_namespace {
 };
 
 extern struct pid_namespace init_pid_ns;
+extern struct pid_namespace *task_active_pid_ns(struct task_struct *tsk);
 
 #define PIDNS_HASH_ADDING (1U << 31)
 
@@ -65,6 +66,11 @@ extern struct pid_namespace *copy_pid_ns(unsigned long flags,
 extern void zap_pid_ns_processes(struct pid_namespace *pid_ns);
 extern int reboot_pid_ns(struct pid_namespace *pid_ns, int cmd);
 extern void put_pid_ns(struct pid_namespace *ns);
+
+static inline bool in_noninit_pid_ns(struct task_struct *task)
+{
+	return task_active_pid_ns(task) != &init_pid_ns;
+}
 
 #else /* !CONFIG_PID_NS */
 #include <linux/err.h>
@@ -86,6 +92,13 @@ static inline void put_pid_ns(struct pid_namespace *ns)
 {
 }
 
+static inline bool in_noninit_pid_ns(struct task_struct *task)
+{
+	return false;
+}
+
+
+
 static inline void zap_pid_ns_processes(struct pid_namespace *ns)
 {
 	BUG();
@@ -97,7 +110,6 @@ static inline int reboot_pid_ns(struct pid_namespace *pid_ns, int cmd)
 }
 #endif /* CONFIG_PID_NS */
 
-extern struct pid_namespace *task_active_pid_ns(struct task_struct *tsk);
 void pidhash_init(void);
 void pidmap_init(void);
 

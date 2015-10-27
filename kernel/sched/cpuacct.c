@@ -65,6 +65,27 @@ static struct cpuacct root_cpuacct = {
 	.cpuusage	= &root_cpuacct_cpuusage,
 };
 
+struct kernel_cpustat *task_ca_kcpustat_ptr(struct task_struct *tsk, int cpu)
+{
+	struct cpuacct *ca;
+
+	ca = task_ca(tsk);
+
+	return per_cpu_ptr(ca->cpustat, cpu);
+}
+
+bool task_in_nonroot_cpuacct(struct task_struct *tsk)
+{
+	struct cpuacct *ca = NULL;
+
+	ca = task_ca(tsk);
+	if (ca && (ca != &root_cpuacct))
+		return true;
+
+	return false;
+}
+
+
 /* create a new cpu accounting group */
 static struct cgroup_subsys_state *
 cpuacct_css_alloc(struct cgroup_subsys_state *parent_css)

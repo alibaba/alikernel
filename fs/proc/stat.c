@@ -11,12 +11,24 @@
 #include <linux/irqnr.h>
 #include <linux/cputime.h>
 #include <linux/tick.h>
+#include <linux/cgroup.h>
+#include <linux/cpuset.h>
+#include <linux/cpumask.h>
+#include <linux/pid_namespace.h>
 
 #ifndef arch_irq_stat_cpu
 #define arch_irq_stat_cpu(cpu) 0
 #endif
 #ifndef arch_irq_stat
 #define arch_irq_stat() 0
+#endif
+
+#ifdef CONFIG_CGROUP_CPUACCT
+extern struct kernel_cpustat *task_ca_kcpustat_ptr(struct task_struct*, int);
+extern bool task_in_nonroot_cpuacct(struct task_struct *);
+#else
+bool task_in_nonroot_cpuacct(struct task_struct *tsk) { return false; }
+struct kernel_cpustat *task_ca_kcpustat_ptr(struct task_struct*, int) { return NULL; }
 #endif
 
 #ifdef arch_idle_time
@@ -42,6 +54,8 @@ static cputime64_t get_iowait_time(int cpu)
 }
 
 #else
+
+#define arch_idle_time(cpu) 0
 
 static u64 get_idle_time(int cpu)
 {
@@ -86,23 +100,69 @@ static int show_stat(struct seq_file *p, void *v)
 	u64 sum_softirq = 0;
 	unsigned int per_softirq_sums[NR_SOFTIRQS] = {0};
 	struct timespec64 boottime;
+	struct kernel_cpustat *kcpustat;
+	struct cpumask cpus_allowed;
 
 	user = nice = system = idle = iowait =
 		irq = softirq = steal = 0;
 	guest = guest_nice = 0;
 	getboottime64(&boottime);
 
+	rcu_read_lock();
+	if (in_noninit_pid_ns(current) &&
+		task_in_nonroot_cpuacct(current)) {
+		cpumask_copy(&cpus_allowed, cpu_possible_mask);
+		if (task_css(current, cpuset_cgrp_id)) {
+			memset(&cpus_allowed, 0, sizeof(cpus_allowed));
+			get_tsk_cpu_allowed(current, &cpus_allowed);
+		}
+
+		for_each_cpu_and(i, cpu_possible_mask, &cpus_allowed) {
+			kcpustat = task_ca_kcpustat_ptr(current, i);
+			user += kcpustat->cpustat[CPUTIME_USER];
+			nice += kcpustat->cpustat[CPUTIME_NICE];
+			system += kcpustat->cpustat[CPUTIME_SYSTEM];
+			guest += kcpustat->cpustat[CPUTIME_GUEST];
+			guest_nice += kcpustat->cpustat[CPUTIME_GUEST_NICE];
+			idle += kcpustat_cpu(i).cpustat[CPUTIME_IDLE];
+			idle += arch_idle_time(i);
+			idle -= kcpustat->cpustat[CPUTIME_IDLE_BASE];
+			iowait += kcpustat_cpu(i).cpustat[CPUTIME_IOWAIT];
+			iowait -= kcpustat->cpustat[CPUTIME_IOWAIT_BASE];
+			irq += kcpustat->cpustat[CPUTIME_IRQ];
+			softirq += kcpustat->cpustat[CPUTIME_SOFTIRQ];
+			steal += kcpustat_cpu(i).cpustat[CPUTIME_USER]
+				- kcpustat->cpustat[CPUTIME_USER]
+				+ kcpustat_cpu(i).cpustat[CPUTIME_NICE]
+				- kcpustat->cpustat[CPUTIME_NICE]
+				+ kcpustat_cpu(i).cpustat[CPUTIME_SYSTEM]
+				- kcpustat->cpustat[CPUTIME_SYSTEM]
+				+ kcpustat_cpu(i).cpustat[CPUTIME_IRQ]
+				- kcpustat->cpustat[CPUTIME_IRQ]
+				+ kcpustat_cpu(i).cpustat[CPUTIME_SOFTIRQ]
+				- kcpustat->cpustat[CPUTIME_SOFTIRQ]
+				+ kcpustat_cpu(i).cpustat[CPUTIME_GUEST]
+				- kcpustat->cpustat[CPUTIME_GUEST]
+				- kcpustat->cpustat[CPUTIME_STEAL_BASE];
+		}
+	} else {
+		for_each_possible_cpu(i) {
+			user += kcpustat_cpu(i).cpustat[CPUTIME_USER];
+			nice += kcpustat_cpu(i).cpustat[CPUTIME_NICE];
+			system += kcpustat_cpu(i).cpustat[CPUTIME_SYSTEM];
+			idle += get_idle_time(i);
+			iowait += get_iowait_time(i);
+			irq += kcpustat_cpu(i).cpustat[CPUTIME_IRQ];
+			softirq += kcpustat_cpu(i).cpustat[CPUTIME_SOFTIRQ];
+			steal += kcpustat_cpu(i).cpustat[CPUTIME_STEAL];
+			guest += kcpustat_cpu(i).cpustat[CPUTIME_GUEST];
+			guest_nice += kcpustat_cpu(i).cpustat[CPUTIME_GUEST_NICE];
+		}
+	}
+	rcu_read_unlock();
+
+
 	for_each_possible_cpu(i) {
-		user += kcpustat_cpu(i).cpustat[CPUTIME_USER];
-		nice += kcpustat_cpu(i).cpustat[CPUTIME_NICE];
-		system += kcpustat_cpu(i).cpustat[CPUTIME_SYSTEM];
-		idle += get_idle_time(i);
-		iowait += get_iowait_time(i);
-		irq += kcpustat_cpu(i).cpustat[CPUTIME_IRQ];
-		softirq += kcpustat_cpu(i).cpustat[CPUTIME_SOFTIRQ];
-		steal += kcpustat_cpu(i).cpustat[CPUTIME_STEAL];
-		guest += kcpustat_cpu(i).cpustat[CPUTIME_GUEST];
-		guest_nice += kcpustat_cpu(i).cpustat[CPUTIME_GUEST_NICE];
 		sum += kstat_cpu_irqs_sum(i);
 		sum += arch_irq_stat_cpu(i);
 
@@ -127,31 +187,86 @@ static int show_stat(struct seq_file *p, void *v)
 	seq_put_decimal_ull(p, " ", cputime64_to_clock_t(guest_nice));
 	seq_putc(p, '\n');
 
-	for_each_online_cpu(i) {
-		/* Copy values here to work around gcc-2.95.3, gcc-2.96 */
-		user = kcpustat_cpu(i).cpustat[CPUTIME_USER];
-		nice = kcpustat_cpu(i).cpustat[CPUTIME_NICE];
-		system = kcpustat_cpu(i).cpustat[CPUTIME_SYSTEM];
-		idle = get_idle_time(i);
-		iowait = get_iowait_time(i);
-		irq = kcpustat_cpu(i).cpustat[CPUTIME_IRQ];
-		softirq = kcpustat_cpu(i).cpustat[CPUTIME_SOFTIRQ];
-		steal = kcpustat_cpu(i).cpustat[CPUTIME_STEAL];
-		guest = kcpustat_cpu(i).cpustat[CPUTIME_GUEST];
-		guest_nice = kcpustat_cpu(i).cpustat[CPUTIME_GUEST_NICE];
-		seq_printf(p, "cpu%d", i);
-		seq_put_decimal_ull(p, " ", cputime64_to_clock_t(user));
-		seq_put_decimal_ull(p, " ", cputime64_to_clock_t(nice));
-		seq_put_decimal_ull(p, " ", cputime64_to_clock_t(system));
-		seq_put_decimal_ull(p, " ", cputime64_to_clock_t(idle));
-		seq_put_decimal_ull(p, " ", cputime64_to_clock_t(iowait));
-		seq_put_decimal_ull(p, " ", cputime64_to_clock_t(irq));
-		seq_put_decimal_ull(p, " ", cputime64_to_clock_t(softirq));
-		seq_put_decimal_ull(p, " ", cputime64_to_clock_t(steal));
-		seq_put_decimal_ull(p, " ", cputime64_to_clock_t(guest));
-		seq_put_decimal_ull(p, " ", cputime64_to_clock_t(guest_nice));
-		seq_putc(p, '\n');
+	rcu_read_lock();
+	if (in_noninit_pid_ns(current) &&
+		task_in_nonroot_cpuacct(current)) {
+		cpumask_copy(&cpus_allowed, cpu_possible_mask);
+		if (task_css(current, cpuset_cgrp_id)) {
+			memset(&cpus_allowed, 0, sizeof(cpus_allowed));
+			get_tsk_cpu_allowed(current, &cpus_allowed);
+		}
+		for_each_cpu_and(i, cpu_possible_mask, &cpus_allowed) {
+			kcpustat = task_ca_kcpustat_ptr(current, i);
+			user = kcpustat->cpustat[CPUTIME_USER];
+			nice = kcpustat->cpustat[CPUTIME_NICE];
+			system = kcpustat->cpustat[CPUTIME_SYSTEM];
+			guest = kcpustat->cpustat[CPUTIME_GUEST];
+			guest_nice = kcpustat->cpustat[CPUTIME_GUEST_NICE];
+
+			idle = kcpustat_cpu(i).cpustat[CPUTIME_IDLE];
+			idle += arch_idle_time(i);
+			idle -= kcpustat->cpustat[CPUTIME_IDLE_BASE];
+
+			iowait = kcpustat_cpu(i).cpustat[CPUTIME_IOWAIT];
+			iowait -= kcpustat->cpustat[CPUTIME_IOWAIT_BASE];
+
+			irq = kcpustat->cpustat[CPUTIME_IRQ];
+			softirq = kcpustat->cpustat[CPUTIME_SOFTIRQ];
+
+			steal = kcpustat_cpu(i).cpustat[CPUTIME_USER]
+				- kcpustat->cpustat[CPUTIME_USER]
+				+ kcpustat_cpu(i).cpustat[CPUTIME_NICE]
+				- kcpustat->cpustat[CPUTIME_NICE]
+				+ kcpustat_cpu(i).cpustat[CPUTIME_SYSTEM]
+				- kcpustat->cpustat[CPUTIME_SYSTEM]
+				+ kcpustat_cpu(i).cpustat[CPUTIME_IRQ]
+				- kcpustat->cpustat[CPUTIME_IRQ]
+				+ kcpustat_cpu(i).cpustat[CPUTIME_SOFTIRQ]
+				- kcpustat->cpustat[CPUTIME_SOFTIRQ]
+				+ kcpustat_cpu(i).cpustat[CPUTIME_GUEST]
+				- kcpustat->cpustat[CPUTIME_GUEST]
+				- kcpustat->cpustat[CPUTIME_STEAL_BASE];
+			seq_printf(p, "cpu%d", i);
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(user));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(nice));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(system));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(idle));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(iowait));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(irq));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(softirq));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(steal));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(guest));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(guest_nice));
+			seq_putc(p, '\n');
+		}
+	} else {
+		for_each_online_cpu(i) {
+			/* Copy values here to work around gcc-2.95.3, gcc-2.96 */
+			user = kcpustat_cpu(i).cpustat[CPUTIME_USER];
+			nice = kcpustat_cpu(i).cpustat[CPUTIME_NICE];
+			system = kcpustat_cpu(i).cpustat[CPUTIME_SYSTEM];
+			idle = get_idle_time(i);
+			iowait = get_iowait_time(i);
+			irq = kcpustat_cpu(i).cpustat[CPUTIME_IRQ];
+			softirq = kcpustat_cpu(i).cpustat[CPUTIME_SOFTIRQ];
+			steal = kcpustat_cpu(i).cpustat[CPUTIME_STEAL];
+			guest = kcpustat_cpu(i).cpustat[CPUTIME_GUEST];
+			guest_nice = kcpustat_cpu(i).cpustat[CPUTIME_GUEST_NICE];
+			seq_printf(p, "cpu%d", i);
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(user));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(nice));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(system));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(idle));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(iowait));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(irq));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(softirq));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(steal));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(guest));
+			seq_put_decimal_ull(p, " ", cputime64_to_clock_t(guest_nice));
+			seq_putc(p, '\n');
+		}
 	}
+	rcu_read_unlock();
 	seq_put_decimal_ull(p, "intr ", (unsigned long long)sum);
 
 	/* sum again ? it could be updated? */
