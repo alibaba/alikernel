@@ -93,6 +93,13 @@ cpuacct_css_alloc(struct cgroup_subsys_state *parent_css)
 			kcpustat_cpu(i).cpustat[CPUTIME_IDLE];
 		kcpustat->cpustat[CPUTIME_IOWAIT_BASE] =
 			kcpustat_cpu(i).cpustat[CPUTIME_IOWAIT];
+		kcpustat->cpustat[CPUTIME_STEAL_BASE] =
+			kcpustat_cpu(i).cpustat[CPUTIME_USER]
+			+ kcpustat_cpu(i).cpustat[CPUTIME_NICE]
+			+ kcpustat_cpu(i).cpustat[CPUTIME_SYSTEM]
+			+ kcpustat_cpu(i).cpustat[CPUTIME_IRQ]
+			+ kcpustat_cpu(i).cpustat[CPUTIME_SOFTIRQ]
+			+ kcpustat_cpu(i).cpustat[CPUTIME_GUEST];
 	}
 
 	return &ca->css;
@@ -349,6 +356,19 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 			idle -= kcpustat->cpustat[CPUTIME_IDLE_BASE];
 			iowait += kcpustat_cpu(cpu).cpustat[CPUTIME_IOWAIT];
 			iowait -= kcpustat->cpustat[CPUTIME_IOWAIT_BASE];
+			steal = kcpustat_cpu(cpu).cpustat[CPUTIME_USER]
+				- kcpustat->cpustat[CPUTIME_USER]
+				+ kcpustat_cpu(cpu).cpustat[CPUTIME_NICE]
+				- kcpustat->cpustat[CPUTIME_NICE]
+				+ kcpustat_cpu(cpu).cpustat[CPUTIME_SYSTEM]
+				- kcpustat->cpustat[CPUTIME_SYSTEM]
+				+ kcpustat_cpu(cpu).cpustat[CPUTIME_IRQ]
+				- kcpustat->cpustat[CPUTIME_IRQ]
+				+ kcpustat_cpu(cpu).cpustat[CPUTIME_SOFTIRQ]
+				- kcpustat->cpustat[CPUTIME_SOFTIRQ]
+				+ kcpustat_cpu(cpu).cpustat[CPUTIME_GUEST]
+				- kcpustat->cpustat[CPUTIME_GUEST]
+				-  kcpustat->cpustat[CPUTIME_STEAL_BASE];
 		}
 	} else {
 		for_each_online_cpu(cpu) {
@@ -358,6 +378,19 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 			idle -= kcpustat->cpustat[CPUTIME_IDLE_BASE];
 			iowait += kcpustat_cpu(cpu).cpustat[CPUTIME_IOWAIT];
 			iowait -= kcpustat->cpustat[CPUTIME_IOWAIT_BASE];
+			steal = kcpustat_cpu(cpu).cpustat[CPUTIME_USER]
+			- kcpustat->cpustat[CPUTIME_USER]
+			+ kcpustat_cpu(cpu).cpustat[CPUTIME_NICE]
+			- kcpustat->cpustat[CPUTIME_NICE]
+			+ kcpustat_cpu(cpu).cpustat[CPUTIME_SYSTEM]
+			- kcpustat->cpustat[CPUTIME_SYSTEM]
+			+ kcpustat_cpu(cpu).cpustat[CPUTIME_IRQ]
+			- kcpustat->cpustat[CPUTIME_IRQ]
+			+ kcpustat_cpu(cpu).cpustat[CPUTIME_SOFTIRQ]
+			- kcpustat->cpustat[CPUTIME_SOFTIRQ]
+			+ kcpustat_cpu(cpu).cpustat[CPUTIME_GUEST]
+			- kcpustat->cpustat[CPUTIME_GUEST]
+			- kcpustat->cpustat[CPUTIME_STEAL_BASE];
 		}
 	}
 
@@ -368,6 +401,7 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 	seq_printf(sf, "iowait %lld\n", cputime64_to_clock_t(iowait));
 	seq_printf(sf, "irq %lld\n", cputime64_to_clock_t(irq));
 	seq_printf(sf, "softirq %lld\n", cputime64_to_clock_t(softirq));
+	seq_printf(sf, "steal %lld\n", cputime64_to_clock_t(steal));
 	seq_printf(sf, "guest %lld\n", cputime64_to_clock_t(guest));
 
 	return 0;
