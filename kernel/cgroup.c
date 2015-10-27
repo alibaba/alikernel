@@ -417,6 +417,13 @@ static struct cgroup_subsys_state *cgroup_css(struct cgroup *cgrp,
 		return &cgrp->self;
 }
 
+
+struct cgroup_subsys_state *global_cgroup_css(struct cgroup *cgrp,
+					      int ssid)
+{
+
+	return cgroup_css(cgrp, cgroup_subsys[(ssid)]);
+}
 /**
  * cgroup_e_css - obtain a cgroup's effective css for the specified subsystem
  * @cgrp: the cgroup of interest

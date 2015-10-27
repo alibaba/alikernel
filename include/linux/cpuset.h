@@ -13,6 +13,7 @@
 #include <linux/nodemask.h>
 #include <linux/mm.h>
 #include <linux/jump_label.h>
+#include <linux/cgroup.h>
 
 #ifdef CONFIG_CPUSETS
 
@@ -61,6 +62,7 @@ extern void cpuset_wait_for_hotplug(void);
 extern void cpuset_cpus_allowed(struct task_struct *p, struct cpumask *mask);
 extern void cpuset_cpus_allowed_fallback(struct task_struct *p);
 extern nodemask_t cpuset_mems_allowed(struct task_struct *p);
+extern cpumask_var_t get_cs_cpu_allowed(struct cgroup *cgrp);
 #define cpuset_current_mems_allowed (current->mems_allowed)
 void cpuset_init_current_mems_allowed(void);
 int cpuset_nodemask_valid_mems_allowed(nodemask_t *nodemask);

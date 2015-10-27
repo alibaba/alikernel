@@ -7,6 +7,7 @@
 #include <linux/rcupdate.h>
 #include <linux/kernel_stat.h>
 #include <linux/err.h>
+#include <linux/cpuset.h>
 
 #include "sched.h"
 
@@ -69,6 +70,8 @@ static struct cgroup_subsys_state *
 cpuacct_css_alloc(struct cgroup_subsys_state *parent_css)
 {
 	struct cpuacct *ca;
+	int i;
+	struct kernel_cpustat *kcpustat;
 
 	if (!parent_css)
 		return &root_cpuacct.css;
@@ -84,6 +87,13 @@ cpuacct_css_alloc(struct cgroup_subsys_state *parent_css)
 	ca->cpustat = alloc_percpu(struct kernel_cpustat);
 	if (!ca->cpustat)
 		goto out_free_cpuusage;
+	for_each_possible_cpu(i) {
+		kcpustat = per_cpu_ptr(ca->cpustat, i);
+		kcpustat->cpustat[CPUTIME_IDLE_BASE] =
+			kcpustat_cpu(i).cpustat[CPUTIME_IDLE];
+		kcpustat->cpustat[CPUTIME_IOWAIT_BASE] =
+			kcpustat_cpu(i).cpustat[CPUTIME_IOWAIT];
+	}
 
 	return &ca->css;
 
@@ -276,6 +286,10 @@ static int cpuacct_all_seq_show(struct seq_file *m, void *V)
 	return 0;
 }
 
+#ifndef arch_idle_time
+#define arch_idle_time(cpu) 0
+#endif
+
 static int cpuacct_stats_show(struct seq_file *sf, void *v)
 {
 	struct cpuacct *ca = css_ca(seq_css(sf));
@@ -306,10 +320,13 @@ static int cpuacct_stats_show(struct seq_file *sf, void *v)
 static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 {
 	struct cpuacct *ca = css_ca(seq_css(sf));
+	struct cgroup *cgrp;
 	u64 user, nice, system, idle, iowait, irq, softirq, steal, guest;
 	int cpu;
 	struct kernel_cpustat *kcpustat;
+	cpumask_var_t cpus_allowed;
 
+	cgrp = seq_css(sf)->cgroup;
 	user = nice = system = idle = iowait =
 		irq = softirq = steal = guest = 0;
 
@@ -323,9 +340,32 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 		guest += kcpustat->cpustat[CPUTIME_GUEST];
 	}
 
+	if (global_cgroup_css(cgrp, cpuset_cgrp_id)) {
+		cpus_allowed = get_cs_cpu_allowed(cgrp);
+		for_each_cpu_and(cpu, cpu_online_mask, cpus_allowed) {
+			kcpustat = per_cpu_ptr(ca->cpustat, cpu);
+			idle += kcpustat_cpu(cpu).cpustat[CPUTIME_IDLE];
+			idle += arch_idle_time(cpu);
+			idle -= kcpustat->cpustat[CPUTIME_IDLE_BASE];
+			iowait += kcpustat_cpu(cpu).cpustat[CPUTIME_IOWAIT];
+			iowait -= kcpustat->cpustat[CPUTIME_IOWAIT_BASE];
+		}
+	} else {
+		for_each_online_cpu(cpu) {
+			kcpustat = per_cpu_ptr(ca->cpustat, cpu);
+			idle += kcpustat_cpu(cpu).cpustat[CPUTIME_IDLE];
+			idle += arch_idle_time(cpu);
+			idle -= kcpustat->cpustat[CPUTIME_IDLE_BASE];
+			iowait += kcpustat_cpu(cpu).cpustat[CPUTIME_IOWAIT];
+			iowait -= kcpustat->cpustat[CPUTIME_IOWAIT_BASE];
+		}
+	}
+
 	seq_printf(sf, "user %lld\n", cputime64_to_clock_t(user));
 	seq_printf(sf, "nice %lld\n", cputime64_to_clock_t(nice));
 	seq_printf(sf, "system %lld\n", cputime64_to_clock_t(system));
+	seq_printf(sf, "idle %lld\n", cputime64_to_clock_t(idle));
+	seq_printf(sf, "iowait %lld\n", cputime64_to_clock_t(iowait));
 	seq_printf(sf, "irq %lld\n", cputime64_to_clock_t(irq));
 	seq_printf(sf, "softirq %lld\n", cputime64_to_clock_t(softirq));
 	seq_printf(sf, "guest %lld\n", cputime64_to_clock_t(guest));

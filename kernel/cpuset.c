@@ -137,6 +137,19 @@ static inline struct cpuset *css_cs(struct cgroup_subsys_state *css)
 {
 	return css ? container_of(css, struct cpuset, css) : NULL;
 }
+/* Retrieve the cpuset for a cgroup */
+static inline struct cpuset *cgroup_cs(struct cgroup *cont)
+{
+	return container_of(global_cgroup_css(cont, cpuset_cgrp_id),
+		struct cpuset, css);
+}
+
+cpumask_var_t get_cs_cpu_allowed(struct cgroup *cgrp)
+{
+	struct cpuset *cs = cgroup_cs(cgrp);
+
+	return cs->cpus_allowed;
+}
 
 /* Retrieve the cpuset for a task */
 static inline struct cpuset *task_cs(struct task_struct *task)
