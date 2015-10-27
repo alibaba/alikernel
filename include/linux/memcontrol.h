@@ -466,6 +466,8 @@ unsigned long mem_cgroup_get_limit(struct mem_cgroup *memcg);
 
 void mem_cgroup_print_oom_info(struct mem_cgroup *memcg,
 				struct task_struct *p);
+extern void cgroup_mem_sw_info(struct sysinfo *val, struct mem_cgroup *mem_cont,
+	long *cached, unsigned long pages[]);
 
 static inline void mem_cgroup_oom_enable(void)
 {
@@ -718,6 +720,11 @@ static inline void unlock_page_memcg(struct page *page)
 }
 
 static inline void mem_cgroup_handle_over_high(void)
+{
+}
+
+void cgroup_mem_sw_info(struct sysinfo *val, struct mem_cgroup *mem_cont,
+	long *cached, unsigned long pages[]);
 {
 }
 

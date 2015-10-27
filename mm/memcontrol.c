@@ -60,6 +60,7 @@
 #include <linux/swap_cgroup.h>
 #include <linux/cpu.h>
 #include <linux/oom.h>
+#include <linux/blkdev.h>
 #include <linux/lockdep.h>
 #include <linux/file.h>
 #include <linux/tracehook.h>
@@ -5032,6 +5033,59 @@ static void mem_cgroup_bind(struct cgroup_subsys_state *root_css)
 		root_mem_cgroup->use_hierarchy = false;
 }
 
+void cgroup_mem_sw_info(struct sysinfo *val, struct mem_cgroup *memcg,
+			long *cached, unsigned long pages[])
+{
+	unsigned long long limit, memsw_limit;
+	u64 memsw_limit_pages;
+	long cache_size, rss_size, swap_size;
+	unsigned int i;
+	struct mem_cgroup *mi;
+
+	cache_size = mem_cgroup_read_stat(memcg, MEM_CGROUP_STAT_CACHE);
+	rss_size = mem_cgroup_read_stat(memcg, MEM_CGROUP_STAT_RSS);
+
+	if (do_swap_account)
+		swap_size = mem_cgroup_read_stat(memcg, MEM_CGROUP_STAT_SWAP);
+	else
+		swap_size = 0;
+
+	limit = memsw_limit = PAGE_COUNTER_MAX;
+	for (mi = memcg; mi; mi = parent_mem_cgroup(mi)) {
+		limit = min(limit, mi->memory.limit);
+		memsw_limit = min(memsw_limit, mi->memsw.limit);
+	}
+
+	val->totalram = limit;
+	val->sharedram = 0;
+	val->freeram = limit - cache_size - rss_size;
+	/* these are not accounted by memcg yet */
+	/* if give bufferram the global value, free may show a quite
+	 * large number in the +/-buffers/caches row, the reason is
+	 * it's equal to group_used - global_buffer - group_cached,
+	 * if global_buffer > group_used, we get a rewind large value.
+	 */
+	val->bufferram = 0;
+	val->totalhigh = totalhigh_pages;
+	val->freehigh = nr_free_highpages();
+	val->mem_unit = PAGE_SIZE;
+
+	*cached = cache_size;
+
+	/* fill in swinfo */
+	if (do_swap_account) {
+		si_swapinfo(val);
+		memsw_limit_pages = memsw_limit;
+		if (memsw_limit_pages < val->totalswap)
+			val->totalswap = memsw_limit_pages;
+		val->freeswap = val->totalswap - swap_size;
+	} else
+		si_swapinfo(val);
+	for (i = 0; i < NR_LRU_LISTS; i++)
+		pages[i] = mem_cgroup_nr_lru_pages(memcg, BIT(i));
+
+	return;
+}
 static u64 memory_current_read(struct cgroup_subsys_state *css,
 			       struct cftype *cft)
 {

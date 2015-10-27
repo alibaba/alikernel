@@ -17,6 +17,7 @@
 #endif
 #include <asm/page.h>
 #include <asm/pgtable.h>
+#include <linux/pid_namespace.h>
 #include "internal.h"
 
 void __attribute__((weak)) arch_report_meminfo(struct seq_file *m)
@@ -50,18 +51,28 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	long available;
 	unsigned long pages[NR_LRU_LISTS];
 	int lru;
+	bool instance_view = false;
+	struct mem_cgroup *memcg = NULL;
 
-	si_meminfo(&i);
-	si_swapinfo(&i);
-	committed = percpu_counter_read_positive(&vm_committed_as);
-
-	cached = global_node_page_state(NR_FILE_PAGES) -
+	if (in_noninit_pid_ns(current) &&
+		!mem_cgroup_disabled()) {
+		instance_view = true;
+		memcg = mem_cgroup_from_task(current);
+	}
+	if (!instance_view) {
+		si_meminfo(&i);
+		si_swapinfo(&i);
+		cached = global_node_page_state(NR_FILE_PAGES) -
 			total_swapcache_pages() - i.bufferram;
-	if (cached < 0)
-		cached = 0;
+		if (cached < 0)
+			cached = 0;
 
-	for (lru = LRU_BASE; lru < NR_LRU_LISTS; lru++)
-		pages[lru] = global_node_page_state(NR_LRU_BASE + lru);
+		for (lru = LRU_BASE; lru < NR_LRU_LISTS; lru++)
+			pages[lru] = global_node_page_state(NR_LRU_BASE + lru);
+	} else {
+		cgroup_mem_sw_info(&i, memcg, &cached, pages);
+	}
+	committed = percpu_counter_read_positive(&vm_committed_as);
 
 	available = si_mem_available();
 
