@@ -303,6 +303,36 @@ static int cpuacct_stats_show(struct seq_file *sf, void *v)
 	return 0;
 }
 
+static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
+{
+	struct cpuacct *ca = css_ca(seq_css(sf));
+	u64 user, nice, system, idle, iowait, irq, softirq, steal, guest;
+	int cpu;
+	struct kernel_cpustat *kcpustat;
+
+	user = nice = system = idle = iowait =
+		irq = softirq = steal = guest = 0;
+
+	for_each_online_cpu(cpu) {
+		kcpustat = per_cpu_ptr(ca->cpustat, cpu);
+		user += kcpustat->cpustat[CPUTIME_USER];
+		nice += kcpustat->cpustat[CPUTIME_NICE];
+		system += kcpustat->cpustat[CPUTIME_SYSTEM];
+		irq += kcpustat->cpustat[CPUTIME_IRQ];
+		softirq += kcpustat->cpustat[CPUTIME_SOFTIRQ];
+		guest += kcpustat->cpustat[CPUTIME_GUEST];
+	}
+
+	seq_printf(sf, "user %lld\n", cputime64_to_clock_t(user));
+	seq_printf(sf, "nice %lld\n", cputime64_to_clock_t(nice));
+	seq_printf(sf, "system %lld\n", cputime64_to_clock_t(system));
+	seq_printf(sf, "irq %lld\n", cputime64_to_clock_t(irq));
+	seq_printf(sf, "softirq %lld\n", cputime64_to_clock_t(softirq));
+	seq_printf(sf, "guest %lld\n", cputime64_to_clock_t(guest));
+
+	return 0;
+}
+
 static struct cftype files[] = {
 	{
 		.name = "usage",
@@ -336,6 +366,10 @@ static struct cftype files[] = {
 	{
 		.name = "stat",
 		.seq_show = cpuacct_stats_show,
+	},
+	{
+		.name = "proc_stat",
+		.seq_show = cpuacct_stats_proc_show,
 	},
 	{ }	/* terminate */
 };
