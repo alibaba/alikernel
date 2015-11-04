@@ -4576,9 +4576,10 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 		update_cfs_shares(cfs_rq);
 	}
 
-	if (!se)
+	if (!se) {
 		add_nr_running(rq, 1);
-
+		update_cpuacct_nr(p, cpu_of(rq), 0, 1);
+	}
 	hrtick_update(rq);
 }
 
@@ -4635,9 +4636,10 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 		update_cfs_shares(cfs_rq);
 	}
 
-	if (!se)
+	if (!se) {
 		sub_nr_running(rq, 1);
-
+		update_cpuacct_nr(p, cpu_of(rq), 0, -1);
+	}
 	hrtick_update(rq);
 }
 

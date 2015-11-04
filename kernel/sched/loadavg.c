@@ -96,7 +96,7 @@ long calc_load_fold_active(struct rq *this_rq, long adjust)
 /*
  * a1 = a0 * e + a * (1 - e)
  */
-static unsigned long
+unsigned long
 calc_load(unsigned long load, unsigned long exp, unsigned long active)
 {
 	unsigned long newload;
@@ -371,7 +371,9 @@ void calc_global_load(unsigned long ticks)
 	avenrun[2] = calc_load(avenrun[2], EXP_15, active);
 
 	calc_load_update += LOAD_FREQ;
-
+#ifdef CONFIG_CGROUP_CPUACCT
+	cpuacct_cgroup_walk_tree(NULL);
+#endif
 	/*
 	 * In case we idled for multiple LOAD_FREQ intervals, catch up in bulk.
 	 */

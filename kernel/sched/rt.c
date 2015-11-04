@@ -1311,7 +1311,7 @@ enqueue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 		rt_se->timeout = 0;
 
 	enqueue_rt_entity(rt_se, flags);
-
+	update_cpuacct_nr(p, cpu_of(rq), 0, 1);
 	if (!task_current(rq, p) && tsk_nr_cpus_allowed(p) > 1)
 		enqueue_pushable_task(rq, p);
 }
@@ -1322,6 +1322,7 @@ static void dequeue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 
 	update_curr_rt(rq);
 	dequeue_rt_entity(rt_se, flags);
+	update_cpuacct_nr(p, cpu_of(rq), 0, -1);
 
 	dequeue_pushable_task(rq, p);
 }

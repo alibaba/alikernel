@@ -6,21 +6,51 @@
 #include <linux/seq_file.h>
 #include <linux/seqlock.h>
 #include <linux/time.h>
+#include <linux/cgroup.h>
+#include <linux/cpuset.h>
 
-#define LOAD_INT(x) ((x) >> FSHIFT)
-#define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
+#ifdef CONFIG_CGROUP_CPUACCT
+extern unsigned long task_ca_running(struct task_struct *, int);
+extern bool task_in_nonroot_cpuacct(struct task_struct *);
+extern void get_avenrun_from_tsk(struct task_struct *,
+			unsigned long *, unsigned long, int);
+#else
+bool task_in_nonroot_cpuacct(struct task_struct *) { return false; }
+unsigned long task_ca_running(struct task_struct *, int) { return 0; }
+void get_avenrun_from_tsk(struct task_struct *, unsigned long *,
+			unsigned long, int) {}
+#endif
 
 static int loadavg_proc_show(struct seq_file *m, void *v)
 {
-	unsigned long avnrun[3];
+	unsigned long avnrun[3], nr_runnable = 0;
+	struct cpumask cpus_allowed;
+	int i;
 
-	get_avenrun(avnrun, FIXED_1/200, 0);
+	rcu_read_lock();
+	if (task_in_nonroot_cpuacct(current) &&
+		in_noninit_pid_ns(current)) {
+
+		get_avenrun_from_tsk(current, avnrun, FIXED_1/200, 0);
+
+		cpumask_copy(&cpus_allowed, cpu_possible_mask);
+		if (task_css(current, cpuset_cgrp_id))
+			memset(&cpus_allowed, 0, sizeof(cpus_allowed));
+		get_tsk_cpu_allowed(current, &cpus_allowed);
+
+		for_each_cpu_and(i, cpu_possible_mask, &cpus_allowed)
+			nr_runnable += task_ca_running(current, i);
+	} else {
+		get_avenrun(avnrun, FIXED_1/200, 0);
+		nr_runnable = nr_running();
+	}
+	rcu_read_unlock();
 
 	seq_printf(m, "%lu.%02lu %lu.%02lu %lu.%02lu %ld/%d %d\n",
 		LOAD_INT(avnrun[0]), LOAD_FRAC(avnrun[0]),
 		LOAD_INT(avnrun[1]), LOAD_FRAC(avnrun[1]),
 		LOAD_INT(avnrun[2]), LOAD_FRAC(avnrun[2]),
-		nr_running(), nr_threads,
+		nr_runnable, nr_threads,
 		task_active_pid_ns(current)->last_pid);
 	return 0;
 }

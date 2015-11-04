@@ -42,6 +42,9 @@ struct cpuacct {
 	/* cpuusage holds pointer to a u64-type object on every cpu */
 	struct cpuacct_usage __percpu *cpuusage;
 	struct kernel_cpustat __percpu *cpustat;
+	unsigned long *nr_uninterruptible;
+	unsigned long *nr_running;
+	unsigned long avenrun[3];
 	u64 *nr_switches;
 };
 
@@ -77,10 +80,31 @@ static inline struct cpuacct *parent_ca(struct cpuacct *ca)
 }
 
 static DEFINE_PER_CPU(struct cpuacct_usage, root_cpuacct_cpuusage);
+static DEFINE_PER_CPU(unsigned long, root_cpuacct_nr_unintr);
+static DEFINE_PER_CPU(unsigned long, root_cpuacct_nr_running);
 static struct cpuacct root_cpuacct = {
 	.cpustat	= &kernel_cpustat,
 	.cpuusage	= &root_cpuacct_cpuusage,
+	.nr_uninterruptible = &root_cpuacct_nr_unintr,
+	.nr_running                     = &root_cpuacct_nr_running,
 };
+
+void get_cgroup_avenrun(struct cpuacct *ca, unsigned long *loads,
+			unsigned long offset, int shift)
+{
+	loads[0] = (ca->avenrun[0] + offset) << shift;
+	loads[1] = (ca->avenrun[1] + offset) << shift;
+	loads[2] = (ca->avenrun[2] + offset) << shift;
+}
+
+void get_avenrun_from_tsk(struct task_struct *tsk, unsigned long *loads,
+			unsigned long offset, int shift)
+{
+	struct cpuacct *ca = task_ca(tsk);
+
+	get_cgroup_avenrun(ca, loads, offset, shift);
+}
+
 
 unsigned long long get_nr_switches_from_tsk(struct task_struct *tsk)
 {
@@ -113,6 +137,18 @@ struct kernel_cpustat *task_ca_kcpustat_ptr(struct task_struct *tsk, int cpu)
 	ca = task_ca(tsk);
 
 	return per_cpu_ptr(ca->cpustat, cpu);
+}
+
+unsigned long task_ca_running(struct task_struct *tsk, int cpu)
+{
+	struct cpuacct *ca;
+	unsigned long nr_running = 0, *nrptr = NULL;
+
+	ca = task_ca(tsk);
+	nrptr = per_cpu_ptr(ca->nr_running, cpu);
+	nr_running = *nrptr;
+
+	return nr_running;
 }
 
 bool task_in_nonroot_cpuacct(struct task_struct *tsk)
@@ -153,6 +189,15 @@ cpuacct_css_alloc(struct cgroup_subsys_state *parent_css)
 	ca->cpustat = alloc_percpu(struct kernel_cpustat);
 	if (!ca->cpustat)
 		goto out_free_cpuusage;
+
+	ca->nr_uninterruptible = alloc_percpu(unsigned long);
+	if (!ca->nr_uninterruptible)
+		goto out_free_uninter;
+
+	ca->nr_running = alloc_percpu(unsigned long);
+	if (!ca->nr_running)
+		goto out_free_running;
+
 	for_each_possible_cpu(i) {
 		kcpustat = per_cpu_ptr(ca->cpustat, i);
 		kcpustat->cpustat[CPUTIME_IDLE_BASE] =
@@ -168,8 +213,13 @@ cpuacct_css_alloc(struct cgroup_subsys_state *parent_css)
 			+ kcpustat_cpu(i).cpustat[CPUTIME_GUEST];
 	}
 
+	avenrun[0] = avenrun[1] = avenrun[2] = 0;
 	return &ca->css;
 
+out_free_running:
+	free_percpu(ca->nr_uninterruptible);
+out_free_uninter:
+	free_percpu(ca->cpustat);
 out_free_cpuusage:
 	free_percpu(ca->cpuusage);
 out_free_nr_switches:
@@ -185,6 +235,8 @@ static void cpuacct_css_free(struct cgroup_subsys_state *css)
 {
 	struct cpuacct *ca = css_ca(css);
 
+	free_percpu(ca->nr_running);
+	free_percpu(ca->nr_uninterruptible);
 	free_percpu(ca->cpustat);
 	free_percpu(ca->cpuusage);
 	free_percpu(ca->nr_switches);
@@ -397,16 +449,16 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 {
 	struct cpuacct *ca = css_ca(seq_css(sf));
 	struct cgroup *cgrp;
-	u64 user, nice, system, idle, iowait, irq, softirq, steal, guest;
+	u64 user, nice, system, idle, iowait, irq, softirq, steal, guest, load;
 	u64 nr_switches = 0;
 	int cpu, i;
-
 	struct kernel_cpustat *kcpustat;
 	cpumask_var_t cpus_allowed;
+	unsigned long avnrun[3];
 
 	cgrp = seq_css(sf)->cgroup;
 	user = nice = system = idle = iowait =
-		irq = softirq = steal = guest = 0;
+		irq = softirq = steal = guest = load = 0;
 
 	for_each_online_cpu(cpu) {
 		kcpustat = per_cpu_ptr(ca->cpustat, cpu);
@@ -467,9 +519,11 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 	if (ca != &root_cpuacct) {
 		for_each_possible_cpu(i)
 			nr_switches += *per_cpu_ptr(ca->nr_switches, i);
+		get_cgroup_avenrun(ca, avnrun, FIXED_1/200, 0);
 	} else {
 		for_each_possible_cpu(i)
 			nr_switches += cpu_rq(i)->nr_switches;
+		get_avenrun(avnrun, FIXED_1/200, 0);
 	}
 
 	seq_printf(sf, "user %lld\n", cputime64_to_clock_t(user));
@@ -481,7 +535,12 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 	seq_printf(sf, "softirq %lld\n", cputime64_to_clock_t(softirq));
 	seq_printf(sf, "steal %lld\n", cputime64_to_clock_t(steal));
 	seq_printf(sf, "guest %lld\n", cputime64_to_clock_t(guest));
-
+	load = LOAD_INT(avnrun[0]) * 100 + LOAD_FRAC(avnrun[0]);
+	seq_printf(sf, "load average(1min) %lld\n", load);
+	load = LOAD_INT(avnrun[1]) * 100 + LOAD_FRAC(avnrun[1]);
+	seq_printf(sf, "load average(5min) %lld\n", load);
+	load = LOAD_INT(avnrun[2]) * 100 + LOAD_FRAC(avnrun[2]);
+	seq_printf(sf, "load average(15min) %lld\n", load);
 	seq_printf(sf, "nr_switches %lld\n", (u64)nr_switches);
 
 	return 0;
@@ -571,6 +630,102 @@ struct cgroup_subsys cpuacct_cgrp_subsys = {
 	.legacy_cftypes	= files,
 	.early_init	= true,
 };
+
+extern  unsigned long calc_load(unsigned long load, unsigned long exp, unsigned long active);
+
+static int cpuacct_cgroup_calc_load(struct cpuacct *acct, void *data)
+{
+	long active = 0;
+	cpumask_var_t cpus_allowed;
+	struct cgroup *cgrp = acct->css.cgroup;
+	int cpu;
+	unsigned long *nrptr;
+
+	if (acct != &root_cpuacct &&
+		global_cgroup_css(cgrp, cpuset_cgrp_id)) {
+		cpus_allowed = get_cs_cpu_allowed(cgrp);
+		for_each_cpu_and(cpu, cpu_online_mask, cpus_allowed) {
+			nrptr = per_cpu_ptr(acct->nr_uninterruptible, cpu);
+			active += *nrptr;
+			nrptr = per_cpu_ptr(acct->nr_running, cpu);
+			active += *nrptr;
+		}
+		active = active > 0 ? active * FIXED_1 : 0;
+		acct->avenrun[0] = calc_load(acct->avenrun[0], EXP_1, active);
+		acct->avenrun[1] = calc_load(acct->avenrun[1], EXP_5, active);
+		acct->avenrun[2] = calc_load(acct->avenrun[2], EXP_15, active);
+	} else {
+		acct->avenrun[0] = avenrun[0];
+		acct->avenrun[1] = avenrun[1];
+		acct->avenrun[2] = avenrun[2];
+	}
+
+	return 0;
+}
+
+void update_cpuacct_uninterruptible(struct cpuacct *ca, int cpu, int inc)
+{
+	unsigned long *nr_uninterruptible =
+		per_cpu_ptr(ca->nr_uninterruptible, cpu);
+
+	if (inc == 1)
+		(*nr_uninterruptible)++;
+	else if (inc == -1)
+		(*nr_uninterruptible)--;
+}
+
+void update_cpuacct_running(struct cpuacct *ca, int cpu, int inc)
+{
+	unsigned long *nr_running = per_cpu_ptr(ca->nr_running, cpu);
+
+	if (inc == 1)
+		(*nr_running)++;
+	else if (inc == -1)
+		(*nr_running)--;
+}
+
+void update_cpuacct_nr(struct task_struct *p, int cpu,
+		int nr_uninter, int nr_running)
+{
+	struct cpuacct *ca = NULL;
+
+	rcu_read_lock();
+	ca = task_ca(p);
+	if (ca && (ca != &root_cpuacct)) {
+		update_cpuacct_uninterruptible(ca, cpu, nr_uninter);
+		update_cpuacct_running(ca, cpu, nr_running);
+	}
+	rcu_read_unlock();
+}
+
+int cpuacct_cgroup_walk_tree(void *data)
+{
+	struct cpuacct *root = &root_cpuacct;
+	int found, ret, nextid;
+	struct cgroup_subsys_state *css;
+	struct cpuacct *acct;
+
+	nextid = 1;
+	rcu_read_lock();
+	css_for_each_descendant_pre(css, &root->css) {
+		ret = 0;
+		acct = NULL;
+		if (css && css_tryget(css))
+			acct = container_of(css, struct cpuacct, css);
+		rcu_read_unlock();
+		if (acct) {
+			ret = cpuacct_cgroup_calc_load(acct, data);
+			css_put(&acct->css);
+		}
+		nextid = found + 1;
+		rcu_read_lock();
+		if (ret || !css)
+			break;
+	}
+	rcu_read_unlock();
+
+	return ret;
+}
 
 bool in_instance_and_hiding(unsigned int cpu, struct task_struct *task,
 			unsigned int *index, bool *in_instance, unsigned int *total)

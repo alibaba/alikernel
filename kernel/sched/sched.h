@@ -1386,6 +1386,16 @@ static inline void sched_update_tick_dependency(struct rq *rq)
 static inline void sched_update_tick_dependency(struct rq *rq) { }
 #endif
 
+#ifdef CONFIG_CGROUP_CPUACCT
+extern void update_cpuacct_nr(struct task_struct *p, int cpu,
+			int nr_uninter, int nr_running);
+#else
+static void update_cpuacct_nr(struct task_struct *p, int cpu,
+			int nr_uninter, int nr_running)
+{
+}
+#endif
+
 static inline void add_nr_running(struct rq *rq, unsigned count)
 {
 	unsigned prev_nr = rq->nr_running;

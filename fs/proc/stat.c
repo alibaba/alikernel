@@ -26,9 +26,11 @@
 #ifdef CONFIG_CGROUP_CPUACCT
 extern struct kernel_cpustat *task_ca_kcpustat_ptr(struct task_struct*, int);
 extern bool task_in_nonroot_cpuacct(struct task_struct *);
+extern unsigned long task_ca_running(struct task_struct *, int);
 #else
 bool task_in_nonroot_cpuacct(struct task_struct *tsk) { return false; }
 struct kernel_cpustat *task_ca_kcpustat_ptr(struct task_struct*, int) { return NULL; }
+unsigned long task_ca_running(struct task_struct *, int) { return 0; }
 #endif
 
 #ifdef arch_idle_time
@@ -102,6 +104,7 @@ static int show_stat(struct seq_file *p, void *v)
 	struct timespec64 boottime;
 	struct kernel_cpustat *kcpustat;
 	struct cpumask cpus_allowed;
+	unsigned long nr_runnable = 0;
 
 	user = nice = system = idle = iowait =
 		irq = softirq = steal = 0;
@@ -273,6 +276,21 @@ static int show_stat(struct seq_file *p, void *v)
 	for_each_irq_nr(j)
 		seq_put_decimal_ull(p, " ", kstat_irqs_usr(j));
 
+	rcu_read_lock();
+	if (in_noninit_pid_ns(current) &&
+		task_in_nonroot_cpuacct(current)) {
+		cpumask_copy(&cpus_allowed, cpu_possible_mask);
+		if (task_css(current, cpuset_cgrp_id)) {
+			memset(&cpus_allowed, 0, sizeof(cpus_allowed));
+			get_tsk_cpu_allowed(current, &cpus_allowed);
+		}
+
+	for_each_cpu_and(i, cpu_possible_mask, &cpus_allowed)
+		nr_runnable += task_ca_running(current, i);
+	} else
+		nr_runnable = nr_running();
+	rcu_read_unlock();
+
 	seq_printf(p,
 		"\nctxt %llu\n"
 		"btime %llu\n"
@@ -282,7 +300,7 @@ static int show_stat(struct seq_file *p, void *v)
 		nr_context_switches(),
 		(unsigned long long)boottime.tv_sec,
 		total_forks,
-		nr_running(),
+		nr_runnable,
 		nr_iowait());
 
 	seq_put_decimal_ull(p, "softirq ", (unsigned long long)sum_softirq);

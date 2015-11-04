@@ -35,6 +35,8 @@
 #define CGROUP_WEIGHT_MIN		1
 #define CGROUP_WEIGHT_DFL		100
 #define CGROUP_WEIGHT_MAX		10000
+#define LOAD_INT(x) ((x) >> FSHIFT)
+#define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
 
 /* a css_task_iter should be treated as an opaque object */
 struct css_task_iter {
@@ -609,6 +611,13 @@ static inline void cgroup_kthread_ready(void)
 	 */
 	current->no_cgroup_migration = 0;
 }
+
+/*
+ * Get a cgroup whose id is greater than or equal to id under tree of root.
+ * Returning a cgroup_subsys_state or NULL.
+ */
+struct cgroup_subsys_state *css_get_next(struct cgroup_subsys *ss, int id,
+			struct cgroup_subsys_state *root, int *foundid);
 
 #else /* !CONFIG_CGROUPS */
 
