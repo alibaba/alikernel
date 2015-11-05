@@ -554,6 +554,26 @@ static int cpuacct_all_seq_show(struct seq_file *m, void *V)
 #define arch_idle_time(cpu) 0
 #endif
 
+extern u64 get_idle_time(int);
+extern u64 get_iowait_time(int);
+static inline unsigned long nr_uninterruptible(void)
+{
+	unsigned long i, sum = 0;
+
+	for_each_possible_cpu(i)
+	sum += cpu_rq(i)->nr_uninterruptible;
+
+	/*
+	 * Since we read the counters lockless, it might be slightly
+	 * inaccurate. Do not allow it to go below zero though:
+	 */
+	if (unlikely((long)sum < 0))
+		sum = 0;
+
+	return sum;
+}
+
+
 static int cpuacct_stats_show(struct seq_file *sf, void *v)
 {
 	struct cpuacct *ca = css_ca(seq_css(sf));
@@ -589,8 +609,9 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 	u64 nr_switches = 0;
 	int cpu, i;
 	struct kernel_cpustat *kcpustat;
-	cpumask_var_t cpus_allowed;
+	struct cpumask cpus_allowed;
 	unsigned long avnrun[3];
+	unsigned long nr_run = 0, nr_uninter = 0, *nrptr = NULL;
 
 	cgrp = seq_css(sf)->cgroup;
 	user = nice = system = idle = iowait =
@@ -606,16 +627,20 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 		guest += kcpustat->cpustat[CPUTIME_GUEST];
 	}
 
+	cpumask_copy(&cpus_allowed, cpu_online_mask);
 	if (global_cgroup_css(cgrp, cpuset_cgrp_id)) {
-		cpus_allowed = get_cs_cpu_allowed(cgrp);
-		for_each_cpu_and(cpu, cpu_online_mask, cpus_allowed) {
+		memset(&cpus_allowed, 0, sizeof(cpus_allowed));
+		cpumask_copy(&cpus_allowed, get_cs_cpu_allowed(cgrp));
+	}
+	if (ca != &root_cpuacct) {
+		for_each_cpu_and(cpu, cpu_online_mask, &cpus_allowed) {
 			kcpustat = per_cpu_ptr(ca->cpustat, cpu);
 			idle += kcpustat_cpu(cpu).cpustat[CPUTIME_IDLE];
 			idle += arch_idle_time(cpu);
 			idle -= kcpustat->cpustat[CPUTIME_IDLE_BASE];
 			iowait += kcpustat_cpu(cpu).cpustat[CPUTIME_IOWAIT];
 			iowait -= kcpustat->cpustat[CPUTIME_IOWAIT_BASE];
-			steal = kcpustat_cpu(cpu).cpustat[CPUTIME_USER]
+			steal += kcpustat_cpu(cpu).cpustat[CPUTIME_USER]
 				- kcpustat->cpustat[CPUTIME_USER]
 				+ kcpustat_cpu(cpu).cpustat[CPUTIME_NICE]
 				- kcpustat->cpustat[CPUTIME_NICE]
@@ -631,34 +656,25 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 		}
 	} else {
 		for_each_online_cpu(cpu) {
-			kcpustat = per_cpu_ptr(ca->cpustat, cpu);
-			idle += kcpustat_cpu(cpu).cpustat[CPUTIME_IDLE];
-			idle += arch_idle_time(cpu);
-			idle -= kcpustat->cpustat[CPUTIME_IDLE_BASE];
-			iowait += kcpustat_cpu(cpu).cpustat[CPUTIME_IOWAIT];
-			iowait -= kcpustat->cpustat[CPUTIME_IOWAIT_BASE];
-			steal = kcpustat_cpu(cpu).cpustat[CPUTIME_USER]
-			- kcpustat->cpustat[CPUTIME_USER]
-			+ kcpustat_cpu(cpu).cpustat[CPUTIME_NICE]
-			- kcpustat->cpustat[CPUTIME_NICE]
-			+ kcpustat_cpu(cpu).cpustat[CPUTIME_SYSTEM]
-			- kcpustat->cpustat[CPUTIME_SYSTEM]
-			+ kcpustat_cpu(cpu).cpustat[CPUTIME_IRQ]
-			- kcpustat->cpustat[CPUTIME_IRQ]
-			+ kcpustat_cpu(cpu).cpustat[CPUTIME_SOFTIRQ]
-			- kcpustat->cpustat[CPUTIME_SOFTIRQ]
-			+ kcpustat_cpu(cpu).cpustat[CPUTIME_GUEST]
-			- kcpustat->cpustat[CPUTIME_GUEST]
-			- kcpustat->cpustat[CPUTIME_STEAL_BASE];
+			idle += get_idle_time(cpu);
+			iowait += get_iowait_time(cpu);
+			steal += kcpustat_cpu(cpu).cpustat[CPUTIME_STEAL];
 		}
 	}
 	if (ca != &root_cpuacct) {
-		for_each_possible_cpu(i)
+		for_each_possible_cpu(i) {
 			nr_switches += *per_cpu_ptr(ca->nr_switches, i);
+			nrptr = per_cpu_ptr(ca->nr_running, cpu);
+			nr_run += *nrptr;
+			nrptr = per_cpu_ptr(ca->nr_uninterruptible, cpu);
+			nr_uninter += *nrptr;
+		}
 		get_cgroup_avenrun(ca, avnrun, FIXED_1/200, 0);
 	} else {
 		for_each_possible_cpu(i)
 			nr_switches += cpu_rq(i)->nr_switches;
+		nr_run = nr_running();
+		nr_uninter = nr_uninterruptible();
 		get_avenrun(avnrun, FIXED_1/200, 0);
 	}
 
@@ -677,6 +693,8 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 	seq_printf(sf, "load average(5min) %lld\n", load);
 	load = LOAD_INT(avnrun[2]) * 100 + LOAD_FRAC(avnrun[2]);
 	seq_printf(sf, "load average(15min) %lld\n", load);
+	seq_printf(sf, "nr_running %lld\n", (u64)nr_run);
+	seq_printf(sf, "nr_uninterrupible %lld\n", (u64)nr_uninter);
 	seq_printf(sf, "nr_switches %lld\n", (u64)nr_switches);
 
 	return 0;

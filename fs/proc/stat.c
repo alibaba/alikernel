@@ -59,7 +59,7 @@ static cputime64_t get_iowait_time(int cpu)
 
 #define arch_idle_time(cpu) 0
 
-static u64 get_idle_time(int cpu)
+u64 get_idle_time(int cpu)
 {
 	u64 idle, idle_time = -1ULL;
 
@@ -75,7 +75,7 @@ static u64 get_idle_time(int cpu)
 	return idle;
 }
 
-static u64 get_iowait_time(int cpu)
+u64 get_iowait_time(int cpu)
 {
 	u64 iowait, iowait_time = -1ULL;
 
