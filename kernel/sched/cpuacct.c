@@ -230,6 +230,44 @@ out:
 	return ERR_PTR(-ENOMEM);
 }
 
+void update_cpuacct_uninterruptible(struct cpuacct *ca, int cpu, int inc)
+{
+	unsigned long *nr_uninterruptible =
+		per_cpu_ptr(ca->nr_uninterruptible, cpu);
+
+	if (inc == 1)
+		(*nr_uninterruptible)++;
+	else if (inc == -1)
+		(*nr_uninterruptible)--;
+}
+
+void update_cpuacct_running(struct cpuacct *ca, int cpu, int inc)
+{
+	unsigned long *nr_running = per_cpu_ptr(ca->nr_running, cpu);
+
+	if (inc == 1)
+		(*nr_running)++;
+	else if (inc == -1)
+		(*nr_running)--;
+}
+
+void update_cpuacct_nr(struct task_struct *p, int cpu,
+			int nr_uninter, int nr_running)
+{
+	struct cpuacct *ca = NULL;
+
+	rcu_read_lock();
+	ca = task_ca(p);
+	if (unlikely(p->old_ca))
+		ca = p->old_ca;
+
+	if (ca && (ca != &root_cpuacct)) {
+		update_cpuacct_uninterruptible(ca, cpu, nr_uninter);
+		update_cpuacct_running(ca, cpu, nr_running);
+	}
+	rcu_read_unlock();
+}
+
 /* destroy an existing cpu accounting group */
 static void cpuacct_css_free(struct cgroup_subsys_state *css)
 {
@@ -242,6 +280,104 @@ static void cpuacct_css_free(struct cgroup_subsys_state *css)
 	free_percpu(ca->nr_switches);
 	kfree(ca);
 }
+
+static void
+cpuacct_css_exit(struct task_struct *tsk)
+{
+	struct rq *rq;
+	struct rq_flags flags;
+	int cpu = task_cpu(tsk);
+	struct cpuacct *ca = task_ca(tsk);
+
+	if (ca && (ca != &root_cpuacct)) {
+		rq = task_rq_lock(tsk, &flags);
+		if (tsk->se.on_rq)
+			update_cpuacct_running(ca, cpu, -1);
+		else if (task_contributes_to_load(tsk))
+			update_cpuacct_uninterruptible(ca, cpu, -1);
+		tsk->old_ca = &root_cpuacct;
+		task_rq_unlock(rq, tsk, &flags);
+	}
+
+}
+
+static int
+cpuacct_css_can_attach(struct cgroup_taskset *tset)
+{
+	struct rq *rq;
+	struct cgroup_subsys_state *dst_css;
+	struct task_struct *tsk;
+	struct rq_flags flags;
+
+	cgroup_taskset_for_each(tsk, dst_css, tset) {
+		rq = task_rq_lock(tsk, &flags);
+		tsk->old_ca = task_ca(tsk);
+		task_rq_unlock(rq, tsk, &flags);
+	}
+
+	return 0;
+}
+
+static void
+cpuacct_css_cancel_attach(struct cgroup_taskset *tset)
+{
+	struct rq *rq;
+	struct cgroup_subsys_state *dst_css;
+	struct task_struct *tsk;
+	struct rq_flags flags;
+
+	cgroup_taskset_for_each(tsk, dst_css, tset) {
+		rq = task_rq_lock(tsk, &flags);
+		tsk->old_ca = NULL;
+		task_rq_unlock(rq, tsk, &flags);
+	}
+
+}
+
+static void
+cpuacct_css_attach(struct cgroup_taskset *tset)
+{
+	struct rq *rq;
+	struct cgroup_subsys_state *dst_css;
+	struct task_struct *tsk;
+	struct rq_flags flags;
+	struct cpuacct *src_ca, *dst_ca;
+	int cpu;
+
+	cgroup_taskset_for_each(tsk, dst_css, tset) {
+again:
+		/* wait for TASK_WAKEUP completion */
+		while (unlikely(tsk->state == TASK_WAKING))
+			cpu_relax();
+		rq = task_rq_lock(tsk, &flags);
+		if (unlikely(tsk->state == TASK_WAKING)) {
+			task_rq_unlock(rq, tsk, &flags);
+			goto again;
+		}
+
+		tsk->old_ca = NULL;
+		src_ca = task_ca(tsk);
+		dst_ca = css_ca(dst_css);
+
+		/* a task not on queue must have been deactived */
+		if (dst_ca && dst_ca != &root_cpuacct) {
+			if (tsk->se.on_rq)
+				update_cpuacct_running(dst_ca, cpu, 1);
+			else if (task_contributes_to_load(tsk))
+				update_cpuacct_uninterruptible(dst_ca, cpu, 1);
+		}
+
+		if (src_ca && src_ca != &root_cpuacct) {
+			if (tsk->se.on_rq)
+				update_cpuacct_running(src_ca, cpu, -1);
+			else if (task_contributes_to_load(tsk))
+				update_cpuacct_uninterruptible(src_ca, cpu, -1);
+		}
+		task_rq_unlock(rq, tsk, &flags);
+	}
+
+}
+
 
 static u64 cpuacct_cpuusage_read(struct cpuacct *ca, int cpu,
 				 enum cpuacct_stat_index index)
@@ -627,6 +763,10 @@ void cpuacct_account_field(struct task_struct *tsk, int index, u64 val)
 struct cgroup_subsys cpuacct_cgrp_subsys = {
 	.css_alloc	= cpuacct_css_alloc,
 	.css_free	= cpuacct_css_free,
+	.can_attach     = cpuacct_css_can_attach,
+	.cancel_attach  = cpuacct_css_cancel_attach,
+	.attach         = cpuacct_css_attach,
+	.exit           = cpuacct_css_exit,
 	.legacy_cftypes	= files,
 	.early_init	= true,
 };
@@ -648,6 +788,7 @@ static int cpuacct_cgroup_calc_load(struct cpuacct *acct, void *data)
 			nrptr = per_cpu_ptr(acct->nr_uninterruptible, cpu);
 			active += *nrptr;
 			nrptr = per_cpu_ptr(acct->nr_running, cpu);
+			WARN_ON_ONCE(*nrptr > cpu_rq(cpu)->nr_running);
 			active += *nrptr;
 		}
 		active = active > 0 ? active * FIXED_1 : 0;
@@ -661,41 +802,6 @@ static int cpuacct_cgroup_calc_load(struct cpuacct *acct, void *data)
 	}
 
 	return 0;
-}
-
-void update_cpuacct_uninterruptible(struct cpuacct *ca, int cpu, int inc)
-{
-	unsigned long *nr_uninterruptible =
-		per_cpu_ptr(ca->nr_uninterruptible, cpu);
-
-	if (inc == 1)
-		(*nr_uninterruptible)++;
-	else if (inc == -1)
-		(*nr_uninterruptible)--;
-}
-
-void update_cpuacct_running(struct cpuacct *ca, int cpu, int inc)
-{
-	unsigned long *nr_running = per_cpu_ptr(ca->nr_running, cpu);
-
-	if (inc == 1)
-		(*nr_running)++;
-	else if (inc == -1)
-		(*nr_running)--;
-}
-
-void update_cpuacct_nr(struct task_struct *p, int cpu,
-		int nr_uninter, int nr_running)
-{
-	struct cpuacct *ca = NULL;
-
-	rcu_read_lock();
-	ca = task_ca(p);
-	if (ca && (ca != &root_cpuacct)) {
-		update_cpuacct_uninterruptible(ca, cpu, nr_uninter);
-		update_cpuacct_running(ca, cpu, nr_running);
-	}
-	rcu_read_unlock();
 }
 
 int cpuacct_cgroup_walk_tree(void *data)

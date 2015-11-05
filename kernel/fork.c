@@ -1594,6 +1594,9 @@ static __latent_entropy struct task_struct *copy_process(
 	p->io_context = NULL;
 	p->audit_context = NULL;
 	cgroup_fork(p);
+#ifdef CONFIG_CGROUP_CPUSTAT
+	p->old_ca = NULL;
+#endif
 #ifdef CONFIG_NUMA
 	p->mempolicy = mpol_dup(p->mempolicy);
 	if (IS_ERR(p->mempolicy)) {
