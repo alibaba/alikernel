@@ -8,6 +8,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/err.h>
 #include <linux/cpuset.h>
+#include <linux/pid_namespace.h>
 
 #include "sched.h"
 
@@ -512,3 +513,37 @@ struct cgroup_subsys cpuacct_cgrp_subsys = {
 	.legacy_cftypes	= files,
 	.early_init	= true,
 };
+
+bool in_instance_and_hiding(unsigned int cpu, struct task_struct *task,
+			unsigned int *index, bool *in_instance, unsigned int *total)
+{
+	struct cpumask cpus_allowed;
+	int i, id = 0;
+
+	if (!in_noninit_pid_ns(task))
+		return false;
+
+       if (!task_in_nonroot_cpuacct(task))
+		return false;
+
+	*in_instance = true;
+	cpumask_copy(&cpus_allowed, cpu_possible_mask);
+	if (task_css(task, cpuset_cgrp_id)) {
+		memset(&cpus_allowed, 0, sizeof(cpus_allowed));
+		get_tsk_cpu_allowed(task, &cpus_allowed);
+	}
+
+	*total = cpumask_weight(&cpus_allowed);
+	if (cpumask_test_cpu(cpu, &cpus_allowed)) {
+		for_each_possible_cpu(i) {
+			if (i == cpu)
+				break;
+			if (cpumask_test_cpu(i, &cpus_allowed))
+				id++;
+		}
+		*index = id;
+		return false;
+	} else
+		return true;
+}
+

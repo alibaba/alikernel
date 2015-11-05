@@ -8,14 +8,22 @@
  *	Get CPU information for use by the procfs.
  */
 static void show_cpuinfo_core(struct seq_file *m, struct cpuinfo_x86 *c,
-			      unsigned int cpu)
+			unsigned int cpu, unsigned int index,
+			bool instance, unsigned int total)
 {
 #ifdef CONFIG_SMP
-	seq_printf(m, "physical id\t: %d\n", c->phys_proc_id);
-	seq_printf(m, "siblings\t: %d\n",
-		   cpumask_weight(topology_core_cpumask(cpu)));
-	seq_printf(m, "core id\t\t: %d\n", c->cpu_core_id);
-	seq_printf(m, "cpu cores\t: %d\n", c->booted_cores);
+	if (instance) {
+		seq_printf(m, "physical id\t: 0\n");
+		seq_printf(m, "siblings\t: %d\n", total);
+		seq_printf(m, "core id\t\t: %d\n", index);
+		seq_printf(m, "cpu cores\t: %d\n", total);
+	} else {
+		seq_printf(m, "physical id\t: %d\n", c->phys_proc_id);
+		seq_printf(m, "siblings\t: %d\n",
+			cpumask_weight(topology_core_cpumask(cpu)));
+		seq_printf(m, "core id\t\t: %d\n", c->cpu_core_id);
+		seq_printf(m, "cpu cores\t: %d\n", c->booted_cores);
+	}
 	seq_printf(m, "apicid\t\t: %d\n", c->apicid);
 	seq_printf(m, "initial apicid\t: %d\n", c->initial_apicid);
 #endif
@@ -52,19 +60,34 @@ static void show_cpuinfo_misc(struct seq_file *m, struct cpuinfo_x86 *c)
 }
 #endif
 
+#ifdef CONFIG_CGROUP_CPUACCT
+extern bool in_instance_and_hiding(unsigned int, struct task_struct *, unsigned int *,
+			bool *, unsigned int *);
+#else
+bool in_instance_and_hiding(unsigned int cpu, struct task_struct *task, unsigned int *index,
+			bool *instance, unsigned int *total)
+{
+	return false;
+}
+#endif
+
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
 	struct cpuinfo_x86 *c = v;
-	unsigned int cpu;
+	unsigned int cpu = 0, index, total;
 	int i;
+	bool instance = false;
 
 	cpu = c->cpu_index;
+	if (in_instance_and_hiding(cpu, current, &index, &instance, &total))
+		return 0;
+
 	seq_printf(m, "processor\t: %u\n"
 		   "vendor_id\t: %s\n"
 		   "cpu family\t: %d\n"
 		   "model\t\t: %u\n"
 		   "model name\t: %s\n",
-		   cpu,
+		   index,
 		   c->x86_vendor_id[0] ? c->x86_vendor_id : "unknown",
 		   c->x86,
 		   c->x86_model,
@@ -90,7 +113,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	if (c->x86_cache_size >= 0)
 		seq_printf(m, "cache size\t: %d KB\n", c->x86_cache_size);
 
-	show_cpuinfo_core(m, c, cpu);
+	show_cpuinfo_core(m, c, cpu, index, instance, total);
 	show_cpuinfo_misc(m, c);
 
 	seq_puts(m, "flags\t\t:");
