@@ -34,10 +34,10 @@ static int loadavg_proc_show(struct seq_file *m, void *v)
 		get_avenrun_from_tsk(current, avnrun, FIXED_1/200, 0);
 
 		cpumask_copy(&cpus_allowed, cpu_possible_mask);
-		if (task_css(current, cpuset_cgrp_id))
+		if (task_css(current, cpuset_cgrp_id)){
 			memset(&cpus_allowed, 0, sizeof(cpus_allowed));
-		get_tsk_cpu_allowed(current, &cpus_allowed);
-
+			get_tsk_cpu_allowed(current, &cpus_allowed);
+		}
 		for_each_cpu_and(i, cpu_possible_mask, &cpus_allowed)
 			nr_runnable += task_ca_running(current, i);
 	} else {
