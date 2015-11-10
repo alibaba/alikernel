@@ -96,6 +96,15 @@ DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
 static void update_rq_clock_task(struct rq *rq, s64 delta);
 
+#ifdef CONFIG_CGROUP_CPUACCT
+extern bool task_in_nonroot_cpuacct(struct task_struct *);
+#else
+bool task_in_nonroot_cpuacct(struct task_struct *tsk)
+{
+	return false;
+}
+#endif
+
 void update_rq_clock(struct rq *rq)
 {
 	s64 delta;
@@ -2942,8 +2951,13 @@ unsigned long long nr_context_switches(void)
 	int i;
 	unsigned long long sum = 0;
 
-	for_each_possible_cpu(i)
+	if (task_in_nonroot_cpuacct(current) &&
+		in_noninit_pid_ns(current)) {
+		sum = get_nr_switches_from_tsk(current);
+	} else {
+		for_each_possible_cpu(i)
 		sum += cpu_rq(i)->nr_switches;
+	}
 
 	return sum;
 }
@@ -3395,6 +3409,8 @@ static void __sched notrace __schedule(bool preempt)
 
 	if (likely(prev != next)) {
 		rq->nr_switches++;
+		if (task_in_nonroot_cpuacct(prev))
+			task_ca_increase_nr_switches(prev);
 		rq->curr = next;
 		++*switch_count;
 

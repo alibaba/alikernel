@@ -42,6 +42,7 @@ struct cpuacct {
 	/* cpuusage holds pointer to a u64-type object on every cpu */
 	struct cpuacct_usage __percpu *cpuusage;
 	struct kernel_cpustat __percpu *cpustat;
+	u64 *nr_switches;
 };
 
 static inline struct cpuacct *css_ca(struct cgroup_subsys_state *css)
@@ -65,6 +66,30 @@ static struct cpuacct root_cpuacct = {
 	.cpustat	= &kernel_cpustat,
 	.cpuusage	= &root_cpuacct_cpuusage,
 };
+
+unsigned long long get_nr_switches_from_tsk(struct task_struct *tsk)
+{
+	int i;
+	unsigned long long sum = 0;
+	struct cpuacct *ca = task_ca(tsk);
+	for_each_possible_cpu(i)
+		sum += *per_cpu_ptr(ca->nr_switches, i);
+
+	return sum;
+}
+
+int task_ca_increase_nr_switches(struct task_struct *tsk)
+{
+	struct cpuacct *ca = NULL;
+	if (!tsk)
+		return -1;
+
+	ca = task_ca(tsk);
+	(*this_cpu_ptr(ca->nr_switches))++;
+
+	return 0;
+}
+
 
 struct kernel_cpustat *task_ca_kcpustat_ptr(struct task_struct *tsk, int cpu)
 {
@@ -102,6 +127,10 @@ cpuacct_css_alloc(struct cgroup_subsys_state *parent_css)
 	if (!ca)
 		goto out;
 
+	ca->nr_switches = alloc_percpu(u64);
+	if (!ca->nr_switches)
+		goto out_free_nr_switches;
+
 	ca->cpuusage = alloc_percpu(struct cpuacct_usage);
 	if (!ca->cpuusage)
 		goto out_free_ca;
@@ -128,6 +157,8 @@ cpuacct_css_alloc(struct cgroup_subsys_state *parent_css)
 
 out_free_cpuusage:
 	free_percpu(ca->cpuusage);
+out_free_nr_switches:
+	free_percpu(ca->nr_switches);
 out_free_ca:
 	kfree(ca);
 out:
@@ -141,6 +172,7 @@ static void cpuacct_css_free(struct cgroup_subsys_state *css)
 
 	free_percpu(ca->cpustat);
 	free_percpu(ca->cpuusage);
+	free_percpu(ca->nr_switches);
 	kfree(ca);
 }
 
@@ -351,7 +383,9 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 	struct cpuacct *ca = css_ca(seq_css(sf));
 	struct cgroup *cgrp;
 	u64 user, nice, system, idle, iowait, irq, softirq, steal, guest;
-	int cpu;
+	u64 nr_switches = 0;
+	int cpu, i;
+
 	struct kernel_cpustat *kcpustat;
 	cpumask_var_t cpus_allowed;
 
@@ -415,6 +449,13 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 			- kcpustat->cpustat[CPUTIME_STEAL_BASE];
 		}
 	}
+	if (ca != &root_cpuacct) {
+		for_each_possible_cpu(i)
+			nr_switches += *per_cpu_ptr(ca->nr_switches, i);
+	} else {
+		for_each_possible_cpu(i)
+			nr_switches += cpu_rq(i)->nr_switches;
+	}
 
 	seq_printf(sf, "user %lld\n", cputime64_to_clock_t(user));
 	seq_printf(sf, "nice %lld\n", cputime64_to_clock_t(nice));
@@ -425,6 +466,8 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 	seq_printf(sf, "softirq %lld\n", cputime64_to_clock_t(softirq));
 	seq_printf(sf, "steal %lld\n", cputime64_to_clock_t(steal));
 	seq_printf(sf, "guest %lld\n", cputime64_to_clock_t(guest));
+
+	seq_printf(sf, "nr_switches %lld\n", (u64)nr_switches);
 
 	return 0;
 }
