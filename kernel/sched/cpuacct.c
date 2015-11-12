@@ -50,6 +50,21 @@ static inline struct cpuacct *css_ca(struct cgroup_subsys_state *css)
 	return css ? container_of(css, struct cpuacct, css) : NULL;
 }
 
+/* return cpu accounting group corresponding to this container */
+static inline struct cpuacct *cgroup_ca(struct cgroup *cgrp)
+{
+	return container_of(global_cgroup_css(cgrp, cpuacct_cgrp_id),
+			    struct cpuacct, css);
+}
+
+struct kernel_cpustat *cgroup_ca_kcpustat_ptr(struct cgroup *cgrp, int cpu)
+{
+	struct cpuacct *ca;
+
+	ca = cgroup_ca(cgrp);
+	return per_cpu_ptr(ca->cpustat, cpu);
+}
+
 /* return cpu accounting group to which this task belongs */
 static inline struct cpuacct *task_ca(struct task_struct *tsk)
 {
