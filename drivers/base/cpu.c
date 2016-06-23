@@ -17,10 +17,17 @@
 #include <linux/of.h>
 #include <linux/cpufeature.h>
 #include <linux/tick.h>
-
+#include <linux/cpuset.h>
 #include "base.h"
+#include <linux/cgroup.h>
+
 
 static DEFINE_PER_CPU(struct device *, cpu_sys_devices);
+#ifdef CONFIG_CGROUP_CPUACCT
+extern bool task_in_nonroot_cpuacct(struct task_struct *);
+#else
+bool task_in_nonroot_cpuacct(struct task_struct *tsk) { return false; }
+#endif
 
 static int cpu_subsys_match(struct device *dev, struct device_driver *drv)
 {
@@ -208,8 +215,19 @@ static ssize_t show_cpus_attr(struct device *dev,
 			      char *buf)
 {
 	struct cpu_attr *ca = container_of(attr, struct cpu_attr, attr);
+	struct cpumask cpus_allowed;
 
-	return cpumap_print_to_pagebuf(true, buf, ca->map);
+	if (!strcmp(attr->attr.name, "online") &&
+		in_noninit_pid_ns(current) &&
+		task_in_nonroot_cpuacct(current) &&
+		task_css(current, cpuset_cgrp_id)) {
+		memset(&cpus_allowed, 0, sizeof(cpus_allowed));
+		get_tsk_cpu_allowed(current, &cpus_allowed);
+	} else {
+		cpumask_copy(&cpus_allowed, ca->map);
+	}
+
+	return cpumap_print_to_pagebuf(true, buf, &cpus_allowed);
 }
 
 #define _CPU_ATTR(name, map) \
