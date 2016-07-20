@@ -1743,8 +1743,10 @@ ttwu_do_activate(struct rq *rq, struct task_struct *p, int wake_flags,
 	lockdep_assert_held(&rq->lock);
 
 #ifdef CONFIG_SMP
-	if (p->sched_contributes_to_load)
+	if (p->sched_contributes_to_load) {
+		update_cpuacct_nr(p, cpu_of(rq), -1, 0);
 		rq->nr_uninterruptible--;
+	}
 
 	if (wake_flags & WF_MIGRATED)
 		en_flags |= ENQUEUE_MIGRATED;
@@ -2097,13 +2099,6 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 
 	p->sched_contributes_to_load = !!task_contributes_to_load(p);
 	p->state = TASK_WAKING;
-
-	if (p->sched_contributes_to_load) {
-	if (likely(cpu_online(cpu)))
-		update_cpuacct_nr(p, cpu, -1, 0);
-	else
-		update_cpuacct_nr(p, cpu_of(this_rq()), -1, 0);
-	}
 
 	cpu = select_task_rq(p, p->wake_cpu, SD_BALANCE_WAKE, wake_flags);
 	if (task_cpu(p) != cpu) {
