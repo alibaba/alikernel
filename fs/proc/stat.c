@@ -114,6 +114,14 @@ static int show_stat(struct seq_file *p, void *v)
 	rcu_read_lock();
 	if (in_noninit_pid_ns(current) &&
 		task_in_nonroot_cpuacct(current)) {
+
+		/*-----fix btime in instance-----*/
+		struct task_struct *init_tsk = NULL;
+		init_tsk = task_active_pid_ns(current)->child_reaper;
+		if (likely(init_tsk))
+			boottime.tv_sec += init_tsk->start_time/NSEC_PER_SEC;		
+		/* ----------end----------- */
+
 		cpumask_copy(&cpus_allowed, cpu_possible_mask);
 		if (task_css(current, cpuset_cgrp_id)) {
 			memset(&cpus_allowed, 0, sizeof(cpus_allowed));
