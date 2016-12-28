@@ -627,7 +627,7 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 		cpumask_copy(&cpus_allowed, get_cs_cpu_allowed(cgrp));
 	}
 	if (ca != &root_cpuacct) {
-		for_each_cpu_and(cpu, cpu_online_mask, &cpus_allowed) {
+		for_each_possible_cpu(cpu) {
 			kcpustat = per_cpu_ptr(ca->cpustat, cpu);
 			idle += kcpustat_cpu(cpu).cpustat[CPUTIME_IDLE];
 			idle += arch_idle_time(cpu);
@@ -788,15 +788,13 @@ extern  unsigned long calc_load(unsigned long load, unsigned long exp, unsigned 
 static int cpuacct_cgroup_calc_load(struct cpuacct *acct, void *data)
 {
 	long active = 0;
-	cpumask_var_t cpus_allowed;
 	struct cgroup *cgrp = acct->css.cgroup;
 	int cpu;
 	unsigned long *nrptr;
 
 	if (acct != &root_cpuacct &&
 		global_cgroup_css(cgrp, cpuset_cgrp_id)) {
-		cpus_allowed = get_cs_cpu_allowed(cgrp);
-		for_each_cpu_and(cpu, cpu_online_mask, cpus_allowed) {
+		for_each_possible_cpu(cpu) {
 			nrptr = per_cpu_ptr(acct->nr_uninterruptible, cpu);
 			active += *nrptr;
 			nrptr = per_cpu_ptr(acct->nr_running, cpu);
