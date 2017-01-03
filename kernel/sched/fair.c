@@ -3935,6 +3935,26 @@ static int tg_throttle_down(struct task_group *tg, void *data)
 	return 0;
 }
 
+void update_cpuacct_nr_from_cfs_rq(struct cfs_rq *cfs_rq,
+			int inc)
+{
+	struct rq *rq;
+	int cpu = 0;
+
+	if (!cfs_rq)
+		return;
+
+	rq = rq_of(cfs_rq);
+	if (!rq)
+		return;
+
+	cpu = cpu_of(rq);
+
+	update_cpuacct_running_from_tg(cfs_rq->tg, cpu, inc);
+
+	return;
+}
+
 static void throttle_cfs_rq(struct cfs_rq *cfs_rq)
 {
 	struct rq *rq = rq_of(cfs_rq);
@@ -3960,6 +3980,7 @@ static void throttle_cfs_rq(struct cfs_rq *cfs_rq)
 		if (dequeue)
 			dequeue_entity(qcfs_rq, se, DEQUEUE_SLEEP);
 		qcfs_rq->h_nr_running -= task_delta;
+		update_cpuacct_nr_from_cfs_rq(qcfs_rq, -task_delta);
 
 		if (qcfs_rq->load.weight)
 			dequeue = 0;
@@ -4023,7 +4044,7 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
 		if (enqueue)
 			enqueue_entity(cfs_rq, se, ENQUEUE_WAKEUP);
 		cfs_rq->h_nr_running += task_delta;
-
+		update_cpuacct_nr_from_cfs_rq(cfs_rq, task_delta);
 		if (cfs_rq_throttled(cfs_rq))
 			break;
 	}
@@ -4561,6 +4582,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 		if (cfs_rq_throttled(cfs_rq))
 			break;
 		cfs_rq->h_nr_running++;
+		update_cpuacct_nr_from_cfs_rq(cfs_rq, 1);
 
 		flags = ENQUEUE_WAKEUP;
 	}
@@ -4568,6 +4590,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);
 		cfs_rq->h_nr_running++;
+		update_cpuacct_nr_from_cfs_rq(cfs_rq, 1);
 
 		if (cfs_rq_throttled(cfs_rq))
 			break;
@@ -4578,7 +4601,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 	if (!se) {
 		add_nr_running(rq, 1);
-		update_cpuacct_nr(p, cpu_of(rq), 0, 1);
 	}
 	hrtick_update(rq);
 }
@@ -4609,6 +4631,7 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 		if (cfs_rq_throttled(cfs_rq))
 			break;
 		cfs_rq->h_nr_running--;
+		update_cpuacct_nr_from_cfs_rq(cfs_rq, -1);
 
 		/* Don't dequeue parent if it has other entities besides us */
 		if (cfs_rq->load.weight) {
@@ -4628,6 +4651,7 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);
 		cfs_rq->h_nr_running--;
+		update_cpuacct_nr_from_cfs_rq(cfs_rq, -1);
 
 		if (cfs_rq_throttled(cfs_rq))
 			break;
@@ -4638,7 +4662,6 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 	if (!se) {
 		sub_nr_running(rq, 1);
-		update_cpuacct_nr(p, cpu_of(rq), 0, -1);
 	}
 	hrtick_update(rq);
 }

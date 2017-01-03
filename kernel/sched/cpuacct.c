@@ -291,9 +291,7 @@ cpuacct_css_exit(struct task_struct *tsk)
 
 	if (ca && (ca != &root_cpuacct)) {
 		rq = task_rq_lock(tsk, &flags);
-		if (tsk->se.on_rq)
-			update_cpuacct_running(ca, cpu, -1);
-		else if (task_contributes_to_load(tsk))
+		if (task_contributes_to_load(tsk))
 			update_cpuacct_uninterruptible(ca, cpu, -1);
 		tsk->old_ca = &root_cpuacct;
 		task_rq_unlock(rq, tsk, &flags);
@@ -361,16 +359,12 @@ again:
 
 		/* a task not on queue must have been deactived */
 		if (dst_ca && dst_ca != &root_cpuacct) {
-			if (tsk->se.on_rq)
-				update_cpuacct_running(dst_ca, cpu, 1);
-			else if (task_contributes_to_load(tsk))
+			if (task_contributes_to_load(tsk))
 				update_cpuacct_uninterruptible(dst_ca, cpu, 1);
 		}
 
 		if (src_ca && src_ca != &root_cpuacct) {
-			if (tsk->se.on_rq)
-				update_cpuacct_running(src_ca, cpu, -1);
-			else if (task_contributes_to_load(tsk))
+			if (task_contributes_to_load(tsk))
 				update_cpuacct_uninterruptible(src_ca, cpu, -1);
 		}
 		task_rq_unlock(rq, tsk, &flags);
@@ -806,7 +800,6 @@ static int cpuacct_cgroup_calc_load(struct cpuacct *acct, void *data)
 			nrptr = per_cpu_ptr(acct->nr_uninterruptible, cpu);
 			active += *nrptr;
 			nrptr = per_cpu_ptr(acct->nr_running, cpu);
-			WARN_ON_ONCE(*nrptr > cpu_rq(cpu)->nr_running);
 			active += *nrptr;
 		}
 		active = active > 0 ? active * FIXED_1 : 0;
@@ -882,5 +875,29 @@ bool in_instance_and_hiding(unsigned int cpu, struct task_struct *task,
 		return false;
 	} else
 		return true;
+}
+
+void update_cpuacct_running_from_tg(struct task_group *tg,
+			int cpu, int inc)
+{
+	struct cgroup *cgrp;
+	struct cpuacct *ca;
+	unsigned long *nr_running;
+
+	if (!tg)
+		return;
+
+	cgrp = tg->css.cgroup;
+	if (!cgrp) {
+		return;
+	}
+	ca = cgroup_ca(cgrp);
+
+	if (ca && (ca != &root_cpuacct)) {
+		nr_running = per_cpu_ptr(ca->nr_running, cpu);
+	*nr_running += inc;
+	}
+
+	return;
 }
 
