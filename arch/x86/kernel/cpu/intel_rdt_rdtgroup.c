@@ -539,7 +539,7 @@ static int rdt_min_cbm_bits_show(struct kernfs_open_file *of,
 }
 
 /* rdtgroup information files for one cache resource. */
-static struct rftype res_info_files[] = {
+static struct rftype res_cache_info_files[] = {
 	{
 		.name		= "num_closids",
 		.mode		= 0444,
@@ -560,11 +560,18 @@ static struct rftype res_info_files[] = {
 	},
 };
 
+void rdt_get_cache_infofile(struct rdt_resource *r)
+{
+	r->info_files = res_cache_info_files;
+	r->nr_info_files = ARRAY_SIZE(res_cache_info_files);
+}
+
 static int rdtgroup_create_info_dir(struct kernfs_node *parent_kn)
 {
 	struct kernfs_node *kn_subdir;
+	struct rftype *res_info_files;
 	struct rdt_resource *r;
-	int ret;
+	int ret, len;
 
 	/* create the directory */
 	kn_info = kernfs_create_dir(parent_kn, "info", parent_kn->mode, NULL);
@@ -583,8 +590,11 @@ static int rdtgroup_create_info_dir(struct kernfs_node *parent_kn)
 		ret = rdtgroup_kn_set_ugid(kn_subdir);
 		if (ret)
 			goto out_destroy;
-		ret = rdtgroup_add_files(kn_subdir, res_info_files,
-					 ARRAY_SIZE(res_info_files));
+
+		res_info_files = r->info_files;
+		len = r->nr_info_files;
+
+		ret = rdtgroup_add_files(kn_subdir, res_info_files, len);
 		if (ret)
 			goto out_destroy;
 		kernfs_activate(kn_subdir);
