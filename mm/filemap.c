@@ -2321,8 +2321,10 @@ next:
 			break;
 	}
 	rcu_read_unlock();
+#ifdef CONFIG_MEMCG
 	if (memcg)
 		css_put(&memcg->css);
+#endif
 }
 EXPORT_SYMBOL(filemap_map_pages);
 

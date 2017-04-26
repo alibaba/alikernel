@@ -1761,6 +1761,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, nr_taken);
 	reclaim_stat->recent_scanned[file] += nr_taken;
 
+#ifdef CONFIG_MEMCG
 	if (sc->target_mem_cgroup) {
 		if (current_is_kswapd())
 			mem_cgroup_kswapd_pgscan(sc->target_mem_cgroup,
@@ -1768,6 +1769,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 		else
 			mem_cgroup_pg_pgscan(sc->target_mem_cgroup, nr_scanned);
 	}
+#endif
 
 	if (global_reclaim(sc)) {
 		__mod_node_page_state(pgdat, NR_PAGES_SCANNED, nr_scanned);
@@ -1794,12 +1796,14 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 		else
 			__count_vm_events(PGSTEAL_DIRECT, nr_reclaimed);
 	} else {
+#ifdef CONFIG_MEMCG
 		if (current_is_kswapd())
 			mem_cgroup_kswapd_steal(sc->target_mem_cgroup,
 				nr_reclaimed);
 		else
 			mem_cgroup_pg_steal(sc->target_mem_cgroup,
 				nr_reclaimed);
+#endif
 	}
 
 	putback_inactive_pages(lruvec, &page_list);
@@ -1969,8 +1973,10 @@ static void shrink_active_list(unsigned long nr_to_scan,
 		__mod_node_page_state(pgdat, NR_PAGES_SCANNED, nr_scanned);
 	__count_vm_events(PGREFILL, nr_scanned);
 
+#ifdef CONFIG_MEMCG
 	if (sc->target_mem_cgroup)
 		mem_cgroup_pgrefill(sc->target_mem_cgroup, nr_scanned);
+#endif
 
 	spin_unlock_irq(&pgdat->lru_lock);
 
@@ -2760,8 +2766,10 @@ retry:
 
 	if (global_reclaim(sc))
 		__count_zid_vm_events(ALLOCSTALL, sc->reclaim_idx, 1);
+#ifdef CONFIG_MEMCG
 	else
 		mem_cgroup_alloc_stall(sc->target_mem_cgroup, 1);
+#endif
 
 	do {
 		vmpressure_prio(sc->gfp_mask, sc->target_mem_cgroup,
@@ -3796,7 +3804,9 @@ int kswapd_run(int nid, struct mem_cgroup *mem)
 	int ret = 0;
 	struct kswapd *kswapd_p;
 	static char name[TASK_COMM_LEN];
+#ifdef CONFIG_MEMCG
 	const char *memcg_name = NULL;
+#endif
 	struct task_struct *kswapd_thr;
 
 	if (!mem) {
@@ -3815,8 +3825,10 @@ int kswapd_run(int nid, struct mem_cgroup *mem)
 		kswapd_p->kswapd_pgdat = pgdat;
 		snprintf(name, TASK_COMM_LEN, "kswapd_%d", nid);
 	} else {
+#ifdef CONFIG_MEMCG
 			memcg_name = mem_cgroup_init_kswapd(mem, kswapd_p);
 			snprintf(name, TASK_COMM_LEN, "memcg_%s", memcg_name);
+#endif
 	}
 
 	kswapd_thr = kthread_run(kswapd, kswapd_p, name);
@@ -3828,9 +3840,11 @@ int kswapd_run(int nid, struct mem_cgroup *mem)
 							nid);
 			pgdat->kswapd_wait = NULL;
 		} else {
+#ifdef CONFIG_MEMCG
 			pr_err("Failed to start kswapd on memcg %s\n",
 							memcg_name);
 			mem_cgroup_clear_kswapd(mem);
+#endif
 		}
 		kfree(kswapd_p);
 		ret = PTR_ERR(kswapd_thr);
@@ -3848,13 +3862,15 @@ void kswapd_stop(int nid, struct mem_cgroup *mem)
 {
 	struct task_struct *kswapd_thr = NULL;
 	struct kswapd *kswapd_p = NULL;
-	wait_queue_head_t *wait;
+	wait_queue_head_t *wait = NULL;
 
 	spin_lock(&kswapds_spinlock);
 	if (!mem)
 		wait = NODE_DATA(nid)->kswapd_wait;
+#ifdef CONFIG_MEMCG
 	else
 		wait = mem_cgroup_kswapd_wait(mem);
+#endif
 
 	if (wait) {
 		kswapd_p = container_of(wait, struct kswapd,

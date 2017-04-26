@@ -3181,7 +3181,9 @@ static int do_read_fault(struct fault_env *fe, pgoff_t pgoff)
 			return VM_FAULT_OOM;
 		if (WARN_ON(!memcg))
 			return 0;
+#ifdef CONFIG_MEMCG
 		css_put(&memcg->css);
+#endif
 		return 0;
 	}
 	ret |= alloc_set_pte(fe, NULL, fault_page);
@@ -3200,8 +3202,10 @@ static int do_read_fault(struct fault_env *fe, pgoff_t pgoff)
 		put_page(fault_page);
 	}
 
+#ifdef CONFIG_MEMCG
 	if (memcg)
 		css_put(&memcg->css);
+#endif
 	return ret;
 }
 
@@ -3289,7 +3293,9 @@ static int do_shared_fault(struct fault_env *fe, pgoff_t pgoff)
 			return VM_FAULT_OOM;
 		if (WARN_ON(!memcg))
 			return 0;
+#ifdef CONFIG_MEMCG
 		css_put(&memcg->css);
+#endif
 		return 0;
 	}
 	ret |= alloc_set_pte(fe, NULL, fault_page);
@@ -3319,8 +3325,10 @@ static int do_shared_fault(struct fault_env *fe, pgoff_t pgoff)
 	 */
 	mapping = page_rmapping(fault_page);
 	unlock_page(fault_page);
+#ifdef CONFIG_MEMCG
 	if (memcg)
 		css_put(&memcg->css);
+#endif
 	if ((dirtied || vma->vm_ops->page_mkwrite) && mapping) {
 		/*
 		 * Some device drivers do not set page.mapping but still

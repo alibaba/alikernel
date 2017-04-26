@@ -833,11 +833,6 @@ static inline void mem_cgroup_handle_over_high(void)
 {
 }
 
-void cgroup_mem_sw_info(struct sysinfo *val, struct mem_cgroup *mem_cont,
-	long *cached, unsigned long pages[]);
-{
-}
-
 static inline void mem_cgroup_oom_enable(void)
 {
 }
@@ -889,43 +884,36 @@ static inline void mem_cgroup_split_huge_fixup(struct page *head)
 static inline void mem_cgroup_kswapd_steal(struct mem_cgroup *memcg,
 					  int val)
 {
-	return 0;
 }
 
 static inline void mem_cgroup_pg_steal(struct mem_cgroup *memcg,
 					int val)
 {
-	return 0;
 }
 
 static inline void mem_cgroup_kswapd_pgscan(struct mem_cgroup *memcg,
 					int val)
 {
-	return 0;
 }
 
 static inline void mem_cgroup_pg_pgscan(struct mem_cgroup *memcg,
 					int val)
 {
-	return 0;
 }
 
 static inline void mem_cgroup_pgrefill(struct mem_cgroup *memcg,
 					int val)
 {
-	return 0;
 }
 
 static inline void mem_cgroup_pg_outrun(struct mem_cgroup *memcg,
 					int val)
 {
-	return 0;
 }
 
 static inline void mem_cgroup_alloc_stall(struct mem_cgroup *memcg,
 					int val)
 {
-	return 0;
 }
 
 static inline
