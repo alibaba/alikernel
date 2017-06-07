@@ -252,7 +252,7 @@ bool cookie_timestamp_decode(const struct net *net,
 		return true;
 	}
 
-	if (!sysctl_tcp_timestamps)
+	if (!net->ipv4.sysctl_tcp_timestamps)
 		return false;
 
 	tcp_opt->sack_ok = (options & TS_OPT_SACK) ? TCP_SACK_SEEN : 0;
