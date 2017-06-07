@@ -241,7 +241,8 @@ EXPORT_SYMBOL(tcp_get_cookie_sock);
  * return false if we decode a tcp option that is disabled
  * on the host.
  */
-bool cookie_timestamp_decode(struct tcp_options_received *tcp_opt)
+bool cookie_timestamp_decode(const struct net *net,
+			     struct tcp_options_received *tcp_opt)
 {
 	/* echoed timestamp, lowest bits contain options */
 	u32 options = tcp_opt->rcv_tsecr;
@@ -256,7 +257,7 @@ bool cookie_timestamp_decode(struct tcp_options_received *tcp_opt)
 
 	tcp_opt->sack_ok = (options & TS_OPT_SACK) ? TCP_SACK_SEEN : 0;
 
-	if (tcp_opt->sack_ok && !sysctl_tcp_sack)
+	if (tcp_opt->sack_ok && !net->ipv4.sysctl_tcp_sack)
 		return false;
 
 	if ((options & TS_OPT_WSCALE_MASK) == TS_OPT_WSCALE_MASK)
@@ -322,7 +323,7 @@ struct sock *cookie_v4_check(struct sock *sk, struct sk_buff *skb)
 	memset(&tcp_opt, 0, sizeof(tcp_opt));
 	tcp_parse_options(sock_net(sk), skb, &tcp_opt, 0, NULL);
 
-	if (!cookie_timestamp_decode(&tcp_opt))
+	if (!cookie_timestamp_decode(sock_net(sk), &tcp_opt))
 		goto out;
 
 	ret = NULL;
