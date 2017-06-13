@@ -81,6 +81,27 @@ TRACE_EVENT(mm_lru_activate,
 
 );
 
+TRACE_EVENT(mm_file_page_accessed,
+
+	TP_PROTO(struct page *page, unsigned long pfn),
+
+	TP_ARGS(page, pfn),
+
+	TP_STRUCT__entry(
+		__field(struct page *,	page	)
+		__field(unsigned long,	pfn	)
+	),
+
+	TP_fast_assign(
+		__entry->page	= page;
+		__entry->pfn	= pfn;
+	),
+
+	/* Flag format is based on page-types.c formatting for pagemap */
+	TP_printk("page=%p pfn=%lu", __entry->page, __entry->pfn)
+
+);
+
 #endif /* _TRACE_PAGEMAP_H */
 
 /* This part must be outside protection */

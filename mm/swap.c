@@ -363,6 +363,8 @@ static void __lru_cache_activate_page(struct page *page)
  */
 void mark_page_accessed(struct page *page)
 {
+	int file = page_is_file_cache(page);
+
 	page = compound_head(page);
 	if (!PageActive(page) && !PageUnevictable(page) &&
 			PageReferenced(page)) {
@@ -378,13 +380,16 @@ void mark_page_accessed(struct page *page)
 		else
 			__lru_cache_activate_page(page);
 		ClearPageReferenced(page);
-		if (page_is_file_cache(page))
+		if (file)
 			workingset_activation(page);
 	} else if (!PageReferenced(page)) {
 		SetPageReferenced(page);
 	}
 	if (page_is_idle(page))
 		clear_page_idle(page);
+
+	if (file)
+		trace_mm_file_page_accessed(page, page_to_pfn(page));
 }
 EXPORT_SYMBOL(mark_page_accessed);
 
