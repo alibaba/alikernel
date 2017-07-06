@@ -85,6 +85,7 @@ enum mem_cgroup_events_index {
 	MEMCG_HIGH,
 	MEMCG_MAX,
 	MEMCG_OOM,
+	MEMCG_OOM_KILL,
 	MEMCG_NR_EVENTS,
 };
 
@@ -600,12 +601,17 @@ static inline void mem_cgroup_count_vm_event(struct mm_struct *mm,
 	case PGMAJFAULT:
 		this_cpu_inc(memcg->stat->events[MEM_CGROUP_EVENTS_PGMAJFAULT]);
 		break;
+	case OOM_KILL:
+		this_cpu_inc(memcg->stat->events[MEMCG_OOM_KILL]);
+		cgroup_file_notify(&memcg->events_file);
+		break;
 	default:
 		BUG();
 	}
 out:
 	rcu_read_unlock();
 }
+
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 void mem_cgroup_split_huge_fixup(struct page *head);
 #endif
