@@ -840,8 +840,7 @@ static int cpuacct_cgroup_calc_load(struct cpuacct *acct, void *data)
 	int cpu;
 	unsigned long *nrptr;
 
-	if (acct != &root_cpuacct &&
-		global_cgroup_css(cgrp, cpuset_cgrp_id)) {
+	if (acct != &root_cpuacct) {
 		for_each_possible_cpu(cpu) {
 			nrptr = per_cpu_ptr(acct->nr_uninterruptible, cpu);
 			active += *nrptr;
