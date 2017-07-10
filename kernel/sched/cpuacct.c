@@ -282,20 +282,35 @@ static void cpuacct_css_free(struct cgroup_subsys_state *css)
 }
 
 static void
+update_nonroot_cpuacct_uninterruptible(struct cpuacct *ca,
+			struct task_struct *tsk, int inc)
+{
+	int cpu;
+
+	if (ca && (ca != &root_cpuacct)) {
+		cpu = task_cpu(tsk);
+		if (!tsk->se.on_rq && task_contributes_to_load(tsk))
+			update_cpuacct_uninterruptible(ca, cpu, inc);
+	}
+}
+
+static void
 cpuacct_css_exit(struct task_struct *tsk)
 {
 	struct rq *rq;
 	struct rq_flags flags;
-	int cpu = task_cpu(tsk);
-	struct cpuacct *ca = task_ca(tsk);
+	struct cpuacct *ca;
 
-	if (ca && (ca != &root_cpuacct)) {
-		rq = task_rq_lock(tsk, &flags);
-		if (task_contributes_to_load(tsk))
-			update_cpuacct_uninterruptible(ca, cpu, -1);
+	rq = task_rq_lock(tsk, &flags);
+	ca = task_ca(tsk);
+	if (unlikely(tsk->old_ca))
+		ca = tsk->old_ca;
+	update_nonroot_cpuacct_uninterruptible(ca, tsk, -1);
+	if (ca && (ca != &root_cpuacct))
 		tsk->old_ca = &root_cpuacct;
-		task_rq_unlock(rq, tsk, &flags);
-	}
+	task_rq_unlock(rq, tsk, &flags);
+
+	return;
 
 }
 
@@ -340,7 +355,6 @@ cpuacct_css_attach(struct cgroup_taskset *tset)
 	struct task_struct *tsk;
 	struct rq_flags flags;
 	struct cpuacct *src_ca, *dst_ca;
-	int cpu;
 
 	cgroup_taskset_for_each(tsk, dst_css, tset) {
 again:
@@ -353,20 +367,13 @@ again:
 			goto again;
 		}
 
-		tsk->old_ca = NULL;
-		src_ca = task_ca(tsk);
+		src_ca = tsk->old_ca;
 		dst_ca = css_ca(dst_css);
+		tsk->old_ca = NULL;
 
 		/* a task not on queue must have been deactived */
-		if (dst_ca && dst_ca != &root_cpuacct) {
-			if (task_contributes_to_load(tsk))
-				update_cpuacct_uninterruptible(dst_ca, cpu, 1);
-		}
-
-		if (src_ca && src_ca != &root_cpuacct) {
-			if (task_contributes_to_load(tsk))
-				update_cpuacct_uninterruptible(src_ca, cpu, -1);
-		}
+		update_nonroot_cpuacct_uninterruptible(dst_ca, tsk, 1);
+		update_nonroot_cpuacct_uninterruptible(src_ca, tsk, -1);
 		task_rq_unlock(rq, tsk, &flags);
 	}
 
@@ -658,9 +665,9 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 	if (ca != &root_cpuacct) {
 		for_each_possible_cpu(i) {
 			nr_switches += *per_cpu_ptr(ca->nr_switches, i);
-			nrptr = per_cpu_ptr(ca->nr_running, cpu);
+			nrptr = per_cpu_ptr(ca->nr_running, i);
 			nr_run += *nrptr;
-			nrptr = per_cpu_ptr(ca->nr_uninterruptible, cpu);
+			nrptr = per_cpu_ptr(ca->nr_uninterruptible, i);
 			nr_uninter += *nrptr;
 		}
 		get_cgroup_avenrun(ca, avnrun, FIXED_1/200, 0);
