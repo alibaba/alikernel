@@ -50,7 +50,7 @@
 #include <asm/switch_to.h>
 #include <asm/xen/hypervisor.h>
 #include <asm/vdso.h>
-#include <asm/intel_rdt.h>
+#include <asm/intel_rdt_sched.h>
 
 __visible DEFINE_PER_CPU(unsigned long, rsp_scratch);
 
