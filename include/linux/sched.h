@@ -2244,6 +2244,19 @@ static inline int pid_alive(const struct task_struct *p)
 	return p->pids[PIDTYPE_PID].pid != NULL;
 }
 
+static inline char task_state_to_char(struct task_struct *task)
+{
+	const char stat_nam[] = TASK_STATE_TO_CHAR_STR;
+	unsigned long state = task->state;
+
+	state = state ? __ffs(state) + 1 : 0;
+
+	/* Make sure the string lines up properly with the number of task states: */
+	BUILD_BUG_ON(sizeof(TASK_STATE_TO_CHAR_STR)-1 != ilog2(TASK_STATE_MAX)+1);
+
+	return state < sizeof(stat_nam) - 1 ? stat_nam[state] : '?';
+}
+
 /**
  * is_global_init - check if a task structure is init. Since init
  * is free to have sub-threads we need to check tgid.
