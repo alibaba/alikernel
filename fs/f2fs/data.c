@@ -97,7 +97,7 @@ static struct bio *__bio_alloc(struct f2fs_sb_info *sbi, block_t blk_addr,
 
 	bio = f2fs_bio_alloc(npages);
 
-	bio->bi_bdev = sbi->sb->s_bdev;
+	bio_set_dev(bio, sbi->sb->s_bdev);
 	bio->bi_iter.bi_sector = SECTOR_FROM_BLOCK(blk_addr);
 	bio->bi_end_io = is_read ? f2fs_read_end_io : f2fs_write_end_io;
 	bio->bi_private = is_read ? NULL : sbi;
@@ -1000,7 +1000,7 @@ static struct bio *f2fs_grab_bio(struct inode *inode, block_t blkaddr,
 			fscrypt_release_ctx(ctx);
 		return ERR_PTR(-ENOMEM);
 	}
-	bio->bi_bdev = bdev;
+	bio_set_dev(bio, bdev);
 	bio->bi_iter.bi_sector = SECTOR_FROM_BLOCK(blkaddr);
 	bio->bi_end_io = f2fs_read_end_io;
 	bio->bi_private = ctx;

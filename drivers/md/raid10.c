@@ -861,7 +861,7 @@ static void flush_pending_writes(struct r10conf *conf)
 			struct bio *next = bio->bi_next;
 			bio->bi_next = NULL;
 			if (unlikely((bio_op(bio) ==  REQ_OP_DISCARD) &&
-			    !blk_queue_discard(bdev_get_queue(bio->bi_bdev))))
+			    !blk_queue_discard(bio->bi_disk->queue)))
 				/* Just ignore it */
 				bio_endio(bio);
 			else
@@ -1040,7 +1040,7 @@ static void raid10_unplug(struct blk_plug_cb *cb, bool from_schedule)
 		struct bio *next = bio->bi_next;
 		bio->bi_next = NULL;
 		if (unlikely((bio_op(bio) ==  REQ_OP_DISCARD) &&
-		    !blk_queue_discard(bdev_get_queue(bio->bi_bdev))))
+		    !blk_queue_discard(bio->bi_disk->queue)))
 			/* Just ignore it */
 			bio_endio(bio);
 		else
@@ -1152,7 +1152,7 @@ read_again:
 
 		read_bio->bi_iter.bi_sector = r10_bio->devs[slot].addr +
 			choose_data_offset(r10_bio, rdev);
-		read_bio->bi_bdev = rdev->bdev;
+		bio_set_dev(read_bio, rdev->bdev);
 		read_bio->bi_end_io = raid10_end_read_request;
 		bio_set_op_attrs(read_bio, op, do_sync);
 		read_bio->bi_private = r10_bio;
@@ -1359,7 +1359,7 @@ retry_write:
 			mbio->bi_iter.bi_sector	= (r10_bio->devs[i].addr+
 					   choose_data_offset(r10_bio,
 							      rdev));
-			mbio->bi_bdev = rdev->bdev;
+			bio_set_dev(mbio, rdev->bdev);
 			mbio->bi_end_io	= raid10_end_write_request;
 			bio_set_op_attrs(mbio, op, do_sync | do_fua);
 			mbio->bi_private = r10_bio;
@@ -1401,7 +1401,7 @@ retry_write:
 			mbio->bi_iter.bi_sector	= (r10_bio->devs[i].addr +
 					   choose_data_offset(
 						   r10_bio, rdev));
-			mbio->bi_bdev = rdev->bdev;
+			bio_set_dev(mbio, rdev->bdev);
 			mbio->bi_end_io	= raid10_end_write_request;
 			bio_set_op_attrs(mbio, op, do_sync | do_fua);
 			mbio->bi_private = r10_bio;
@@ -2037,7 +2037,7 @@ static void sync_request_write(struct mddev *mddev, struct r10bio *r10_bio)
 		md_sync_acct(conf->mirrors[d].rdev->bdev, bio_sectors(tbio));
 
 		tbio->bi_iter.bi_sector += conf->mirrors[d].rdev->data_offset;
-		tbio->bi_bdev = conf->mirrors[d].rdev->bdev;
+		bio_set_dev(tbio, conf->mirrors[d].rdev->bdev);
 		generic_make_request(tbio);
 	}
 
@@ -2509,7 +2509,7 @@ static int narrow_write_error(struct r10bio *r10_bio, int i)
 		wsector = r10_bio->devs[i].addr + (sector - r10_bio->sector);
 		wbio->bi_iter.bi_sector = wsector +
 				   choose_data_offset(r10_bio, rdev);
-		wbio->bi_bdev = rdev->bdev;
+		bio_set_dev(wbio, rdev->bdev);
 		bio_set_op_attrs(wbio, REQ_OP_WRITE, 0);
 
 		if (submit_bio_wait(wbio) < 0)
@@ -2545,7 +2545,7 @@ static void handle_read_error(struct mddev *mddev, struct r10bio *r10_bio)
 	 * frozen.
 	 */
 	bio = r10_bio->devs[slot].bio;
-	bdevname(bio->bi_bdev, b);
+	bio_devname(bio, b);
 	bio_put(bio);
 	r10_bio->devs[slot].bio = NULL;
 
@@ -2585,7 +2585,7 @@ read_more:
 	r10_bio->devs[slot].rdev = rdev;
 	bio->bi_iter.bi_sector = r10_bio->devs[slot].addr
 		+ choose_data_offset(r10_bio, rdev);
-	bio->bi_bdev = rdev->bdev;
+	bio_set_dev(bio, rdev->bdev);
 	bio_set_op_attrs(bio, REQ_OP_READ, do_sync);
 	bio->bi_private = r10_bio;
 	bio->bi_end_io = raid10_end_read_request;
@@ -2967,7 +2967,7 @@ static sector_t raid10_sync_request(struct mddev *mddev, sector_t sector_nr,
 
 	/* Again, very different code for resync and recovery.
 	 * Both must result in an r10bio with a list of bios that
-	 * have bi_end_io, bi_sector, bi_bdev set,
+	 * have bi_end_io, bi_sector, bi_disk set,
 	 * and bi_private set to the r10bio.
 	 * For recovery, we may actually create several r10bios
 	 * with 2 bios in each, that correspond to the bios in the main one.
@@ -3112,7 +3112,7 @@ static sector_t raid10_sync_request(struct mddev *mddev, sector_t sector_nr,
 				from_addr = r10_bio->devs[j].addr;
 				bio->bi_iter.bi_sector = from_addr +
 					rdev->data_offset;
-				bio->bi_bdev = rdev->bdev;
+				bio_set_dev(bio, rdev->bdev);
 				atomic_inc(&rdev->nr_pending);
 				/* and we write to 'i' (if not in_sync) */
 
@@ -3136,7 +3136,7 @@ static sector_t raid10_sync_request(struct mddev *mddev, sector_t sector_nr,
 					bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
 					bio->bi_iter.bi_sector = to_addr
 						+ mrdev->data_offset;
-					bio->bi_bdev = mrdev->bdev;
+					bio_set_dev(bio, mrdev->bdev);
 					atomic_inc(&r10_bio->remaining);
 				} else
 					r10_bio->devs[1].bio->bi_end_io = NULL;
@@ -3164,7 +3164,7 @@ static sector_t raid10_sync_request(struct mddev *mddev, sector_t sector_nr,
 				bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
 				bio->bi_iter.bi_sector = to_addr +
 					mreplace->data_offset;
-				bio->bi_bdev = mreplace->bdev;
+				bio_set_dev(bio, mreplace->bdev);
 				atomic_inc(&r10_bio->remaining);
 				break;
 			}
@@ -3294,7 +3294,7 @@ static sector_t raid10_sync_request(struct mddev *mddev, sector_t sector_nr,
 			bio->bi_end_io = end_sync_read;
 			bio_set_op_attrs(bio, REQ_OP_READ, 0);
 			bio->bi_iter.bi_sector = sector + rdev->data_offset;
-			bio->bi_bdev = rdev->bdev;
+			bio_set_dev(bio, rdev->bdev);
 			count++;
 
 			rdev = rcu_dereference(conf->mirrors[d].replacement);
@@ -3317,7 +3317,7 @@ static sector_t raid10_sync_request(struct mddev *mddev, sector_t sector_nr,
 			bio->bi_end_io = end_sync_write;
 			bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
 			bio->bi_iter.bi_sector = sector + rdev->data_offset;
-			bio->bi_bdev = rdev->bdev;
+			bio_set_dev(bio, rdev->bdev);
 			count++;
 		}
 
@@ -3382,7 +3382,7 @@ static sector_t raid10_sync_request(struct mddev *mddev, sector_t sector_nr,
 		r10_bio->sectors = nr_sectors;
 
 		if (bio->bi_end_io == end_sync_read) {
-			md_sync_acct(bio->bi_bdev, nr_sectors);
+			md_sync_acct_bio(bio, nr_sectors);
 			bio->bi_error = 0;
 			generic_make_request(bio);
 		}
@@ -4397,7 +4397,7 @@ read_more:
 
 	read_bio = bio_alloc_mddev(GFP_KERNEL, RESYNC_PAGES, mddev);
 
-	read_bio->bi_bdev = rdev->bdev;
+	bio_set_dev(read_bio, rdev->bdev);
 	read_bio->bi_iter.bi_sector = (r10_bio->devs[r10_bio->read_slot].addr
 			       + rdev->data_offset);
 	read_bio->bi_private = r10_bio;
@@ -4432,7 +4432,7 @@ read_more:
 			continue;
 
 		bio_reset(b);
-		b->bi_bdev = rdev2->bdev;
+		bio_set_dev(b, rdev2->bdev);
 		b->bi_iter.bi_sector = r10_bio->devs[s/2].addr +
 			rdev2->new_data_offset;
 		b->bi_private = r10_bio;
@@ -4474,7 +4474,7 @@ bio_full:
 	r10_bio->sectors = nr_sectors;
 
 	/* Now submit the read */
-	md_sync_acct(read_bio->bi_bdev, r10_bio->sectors);
+	md_sync_acct_bio(read_bio, r10_bio->sectors);
 	atomic_inc(&r10_bio->remaining);
 	read_bio->bi_next = NULL;
 	generic_make_request(read_bio);
@@ -4536,7 +4536,7 @@ static void reshape_request_write(struct mddev *mddev, struct r10bio *r10_bio)
 		}
 		atomic_inc(&rdev->nr_pending);
 		rcu_read_unlock();
-		md_sync_acct(b->bi_bdev, r10_bio->sectors);
+		md_sync_acct_bio(b, r10_bio->sectors);
 		atomic_inc(&r10_bio->remaining);
 		b->bi_next = NULL;
 		generic_make_request(b);

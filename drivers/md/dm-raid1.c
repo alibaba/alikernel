@@ -463,7 +463,7 @@ static sector_t map_sector(struct mirror *m, struct bio *bio)
 
 static void map_bio(struct mirror *m, struct bio *bio)
 {
-	bio->bi_bdev = m->dev->bdev;
+	bio_set_dev(bio, m->dev->bdev);
 	bio->bi_iter.bi_sector = map_sector(m, bio);
 }
 

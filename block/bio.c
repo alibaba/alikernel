@@ -581,10 +581,10 @@ void __bio_clone_fast(struct bio *bio, struct bio *bio_src)
 	BUG_ON(bio->bi_pool && BVEC_POOL_IDX(bio));
 
 	/*
-	 * most users will be overriding ->bi_bdev with a new target,
+	 * most users will be overriding ->bi_disk with a new target,
 	 * so we don't set nor calculate new physical/hw segment counts here
 	 */
-	bio->bi_bdev = bio_src->bi_bdev;
+	bio->bi_disk = bio_src->bi_disk;
 	bio_set_flag(bio, BIO_CLONED);
 	bio->bi_opf = bio_src->bi_opf;
 	bio->bi_iter = bio_src->bi_iter;
@@ -668,7 +668,7 @@ struct bio *bio_clone_bioset(struct bio *bio_src, gfp_t gfp_mask,
 	bio = bio_alloc_bioset(gfp_mask, bio_segments(bio_src), bs);
 	if (!bio)
 		return NULL;
-	bio->bi_bdev		= bio_src->bi_bdev;
+	bio->bi_disk		= bio_src->bi_disk;
 	bio->bi_opf		= bio_src->bi_opf;
 	bio->bi_iter.bi_sector	= bio_src->bi_iter.bi_sector;
 	bio->bi_iter.bi_size	= bio_src->bi_iter.bi_size;

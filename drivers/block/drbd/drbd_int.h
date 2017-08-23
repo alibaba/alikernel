@@ -1631,8 +1631,8 @@ static inline void drbd_generic_make_request(struct drbd_device *device,
 					     int fault_type, struct bio *bio)
 {
 	__release(local);
-	if (!bio->bi_bdev) {
-		drbd_err(device, "drbd_generic_make_request: bio->bi_bdev == NULL\n");
+	if (!bio->bi_disk) {
+		drbd_err(device, "drbd_generic_make_request: bio->bi_disk == NULL\n");
 		bio->bi_error = -ENODEV;
 		bio_endio(bio);
 		return;

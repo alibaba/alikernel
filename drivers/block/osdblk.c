@@ -270,7 +270,7 @@ static struct bio *bio_chain_clone(struct bio *old_chain, gfp_t gfpmask)
 		if (!tmp)
 			goto err_out;
 
-		tmp->bi_bdev = NULL;
+		tmp->bi_disk = NULL;
 		gfpmask &= ~__GFP_DIRECT_RECLAIM;
 		tmp->bi_next = NULL;
 

@@ -760,7 +760,7 @@ static struct per_bio_data *init_per_bio_data(struct bio *bio, size_t data_size)
  *--------------------------------------------------------------*/
 static void remap_to_origin(struct cache *cache, struct bio *bio)
 {
-	bio->bi_bdev = cache->origin_dev->bdev;
+	bio_set_dev(bio, cache->origin_dev->bdev);
 }
 
 static void remap_to_cache(struct cache *cache, struct bio *bio,
@@ -769,7 +769,7 @@ static void remap_to_cache(struct cache *cache, struct bio *bio,
 	sector_t bi_sector = bio->bi_iter.bi_sector;
 	sector_t block = from_cblock(cblock);
 
-	bio->bi_bdev = cache->cache_dev->bdev;
+	bio_set_dev(bio, cache->cache_dev->bdev);
 	if (!block_size_is_power_of_two(cache))
 		bio->bi_iter.bi_sector =
 			(block * cache->sectors_per_block) +
@@ -851,7 +851,8 @@ static void inc_ds(struct cache *cache, struct bio *bio,
 
 static bool accountable_bio(struct cache *cache, struct bio *bio)
 {
-	return ((bio->bi_bdev == cache->origin_dev->bdev) &&
+	return ((bio->bi_disk == cache->origin_dev->bdev->bd_disk) &&
+		(bio->bi_partno == cache->origin_dev->bdev->bd_partno) &&
 		bio_op(bio) != REQ_OP_DISCARD);
 }
 

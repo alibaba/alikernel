@@ -419,7 +419,7 @@ repeat:
 		fcc->dispatch_list = llist_del_all(&fcc->issue_list);
 		fcc->dispatch_list = llist_reverse_order(fcc->dispatch_list);
 
-		bio->bi_bdev = sbi->sb->s_bdev;
+		bio_set_dev(bio, sbi->sb->s_bdev);
 		bio_set_op_attrs(bio, REQ_OP_WRITE, WRITE_FLUSH);
 		ret = submit_bio_wait(bio);
 
@@ -453,7 +453,7 @@ int f2fs_issue_flush(struct f2fs_sb_info *sbi)
 		int ret;
 
 		atomic_inc(&fcc->submit_flush);
-		bio->bi_bdev = sbi->sb->s_bdev;
+		bio_set_dev(bio, sbi->sb->s_bdev);
 		bio_set_op_attrs(bio, REQ_OP_WRITE, WRITE_FLUSH);
 		ret = submit_bio_wait(bio);
 		atomic_dec(&fcc->submit_flush);

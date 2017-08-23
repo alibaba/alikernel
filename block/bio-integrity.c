@@ -146,7 +146,7 @@ int bio_integrity_add_page(struct bio *bio, struct page *page,
 	iv = bip->bip_vec + bip->bip_vcnt;
 
 	if (bip->bip_vcnt &&
-	    bvec_gap_to_prev(bdev_get_queue(bio->bi_bdev),
+	    bvec_gap_to_prev(bio->bi_disk->queue,
 			     &bip->bip_vec[bip->bip_vcnt - 1], offset))
 		return 0;
 
@@ -170,7 +170,7 @@ EXPORT_SYMBOL(bio_integrity_add_page);
  */
 bool bio_integrity_enabled(struct bio *bio)
 {
-	struct blk_integrity *bi = bdev_get_integrity(bio->bi_bdev);
+	struct blk_integrity *bi = blk_get_integrity(bio->bi_disk);
 
 	if (!bio_is_rw(bio))
 		return false;
@@ -224,7 +224,7 @@ static inline unsigned int bio_integrity_bytes(struct blk_integrity *bi,
 static int bio_integrity_process(struct bio *bio,
 				 integrity_processing_fn *proc_fn)
 {
-	struct blk_integrity *bi = bdev_get_integrity(bio->bi_bdev);
+	struct blk_integrity *bi = blk_get_integrity(bio->bi_disk);
 	struct blk_integrity_iter iter;
 	struct bvec_iter bviter;
 	struct bio_vec bv;
@@ -233,7 +233,7 @@ static int bio_integrity_process(struct bio *bio,
 	void *prot_buf = page_address(bip->bip_vec->bv_page) +
 		bip->bip_vec->bv_offset;
 
-	iter.disk_name = bio->bi_bdev->bd_disk->disk_name;
+	iter.disk_name = bio->bi_disk->disk_name;
 	iter.interval = 1 << bi->interval_exp;
 	iter.seed = bip_get_seed(bip);
 	iter.prot_buf = prot_buf;
@@ -269,16 +269,14 @@ static int bio_integrity_process(struct bio *bio,
 int bio_integrity_prep(struct bio *bio)
 {
 	struct bio_integrity_payload *bip;
-	struct blk_integrity *bi;
-	struct request_queue *q;
+	struct blk_integrity *bi = blk_get_integrity(bio->bi_disk);
+	struct request_queue *q = bio->bi_disk->queue;
 	void *buf;
 	unsigned long start, end;
 	unsigned int len, nr_pages;
 	unsigned int bytes, offset, i;
 	unsigned int intervals;
 
-	bi = bdev_get_integrity(bio->bi_bdev);
-	q = bdev_get_queue(bio->bi_bdev);
 	BUG_ON(bi == NULL);
 	BUG_ON(bio_integrity(bio));
 
@@ -364,7 +362,7 @@ static void bio_integrity_verify_fn(struct work_struct *work)
 	struct bio_integrity_payload *bip =
 		container_of(work, struct bio_integrity_payload, bip_work);
 	struct bio *bio = bip->bip_bio;
-	struct blk_integrity *bi = bdev_get_integrity(bio->bi_bdev);
+	struct blk_integrity *bi = blk_get_integrity(bio->bi_disk);
 
 	bio->bi_error = bio_integrity_process(bio, bi->profile->verify_fn);
 
@@ -419,7 +417,7 @@ EXPORT_SYMBOL(bio_integrity_endio);
 void bio_integrity_advance(struct bio *bio, unsigned int bytes_done)
 {
 	struct bio_integrity_payload *bip = bio_integrity(bio);
-	struct blk_integrity *bi = bdev_get_integrity(bio->bi_bdev);
+	struct blk_integrity *bi = blk_get_integrity(bio->bi_disk);
 	unsigned bytes = bio_integrity_bytes(bi, bytes_done >> 9);
 
 	bvec_iter_advance(bip->bip_vec, &bip->bip_iter, bytes);
@@ -441,7 +439,7 @@ void bio_integrity_trim(struct bio *bio, unsigned int offset,
 			unsigned int sectors)
 {
 	struct bio_integrity_payload *bip = bio_integrity(bio);
-	struct blk_integrity *bi = bdev_get_integrity(bio->bi_bdev);
+	struct blk_integrity *bi = blk_get_integrity(bio->bi_disk);
 
 	bio_integrity_advance(bio, offset << 9);
 	bip->bip_iter.bi_size = bio_integrity_bytes(bi, sectors);

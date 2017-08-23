@@ -3813,7 +3813,7 @@ static int __floppy_read_block_0(struct block_device *bdev, int drive)
 	bio_vec.bv_offset = 0;
 	bio.bi_vcnt = 1;
 	bio.bi_iter.bi_size = size;
-	bio.bi_bdev = bdev;
+	bio_set_dev(&bio, bdev);
 	bio.bi_iter.bi_sector = 0;
 	bio.bi_flags |= (1 << BIO_QUIET);
 	bio.bi_private = &cbdata;

@@ -26,7 +26,8 @@ typedef void (bio_end_io_t) (struct bio *);
  */
 struct bio {
 	struct bio		*bi_next;	/* request queue link */
-	struct block_device	*bi_bdev;
+	struct gendisk		*bi_disk;
+	u8			bi_partno;
 	int			bi_error;
 	unsigned int		bi_opf;		/* bottom bits req flags,
 						 * top bits REQ_OP. Use

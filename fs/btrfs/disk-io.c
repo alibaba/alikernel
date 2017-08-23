@@ -3565,7 +3565,7 @@ static int write_dev_flush(struct btrfs_device *device, int wait)
 		return -ENOMEM;
 
 	bio->bi_end_io = btrfs_end_empty_barrier;
-	bio->bi_bdev = device->bdev;
+	bio_set_dev(bio, device->bdev);
 	bio_set_op_attrs(bio, REQ_OP_WRITE, WRITE_FLUSH);
 	init_completion(&device->flush_wait);
 	bio->bi_private = &device->flush_wait;

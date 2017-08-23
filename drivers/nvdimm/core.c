@@ -319,7 +319,7 @@ ssize_t nd_sector_size_store(struct device *dev, const char *buf,
 
 void __nd_iostat_start(struct bio *bio, unsigned long *start)
 {
-	struct gendisk *disk = bio->bi_bdev->bd_disk;
+	struct gendisk *disk = bio->bi_disk;
 	const int rw = bio_data_dir(bio);
 	int cpu = part_stat_lock();
 
@@ -334,7 +334,7 @@ EXPORT_SYMBOL(__nd_iostat_start);
 
 void nd_iostat_end(struct bio *bio, unsigned long start)
 {
-	struct gendisk *disk = bio->bi_bdev->bd_disk;
+	struct gendisk *disk = bio->bi_disk;
 	unsigned long duration = jiffies - start;
 	const int rw = bio_data_dir(bio);
 	int cpu = part_stat_lock();

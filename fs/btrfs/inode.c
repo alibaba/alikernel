@@ -8438,6 +8438,7 @@ static int btrfs_submit_direct_hook(struct btrfs_dio_private *dip,
 	struct btrfs_root *root = BTRFS_I(inode)->root;
 	struct bio *bio;
 	struct bio *orig_bio = dip->orig_bio;
+	struct block_device *orig_bdev = NULL;
 	struct bio_vec *bvec = orig_bio->bi_io_vec;
 	u64 start_sector = orig_bio->bi_iter.bi_sector;
 	u64 file_offset = dip->logical_offset;
@@ -8467,9 +8468,15 @@ static int btrfs_submit_direct_hook(struct btrfs_dio_private *dip,
 	else
 		async_submit = 1;
 
-	bio = btrfs_dio_bio_alloc(orig_bio->bi_bdev, start_sector, GFP_NOFS);
-	if (!bio)
+	orig_bdev = bdget_disk(orig_bio->bi_disk, orig_bio->bi_partno);
+	if (!orig_bdev)
+		return -ENODEV;
+
+	bio = btrfs_dio_bio_alloc(orig_bdev, start_sector, GFP_NOFS);
+	if (!bio) {
+		bdput(orig_bdev);
 		return -ENOMEM;
+	}
 
 	bio_set_op_attrs(bio, bio_op(orig_bio), bio_flags(orig_bio));
 	bio->bi_private = dip;
@@ -8505,7 +8512,7 @@ next_block:
 
 			submit_len = 0;
 
-			bio = btrfs_dio_bio_alloc(orig_bio->bi_bdev,
+			bio = btrfs_dio_bio_alloc(orig_bdev,
 						  start_sector, GFP_NOFS);
 			if (!bio)
 				goto out_err;
@@ -8538,8 +8545,11 @@ next_block:
 submit:
 	ret = __btrfs_submit_dio_bio(bio, inode, file_offset, skip_sum,
 				     async_submit);
-	if (!ret)
+	if (!ret) {
+		if (orig_bdev)
+			bdput(orig_bdev);
 		return 0;
+	}
 
 	bio_put(bio);
 out_err:
@@ -8552,6 +8562,8 @@ out_err:
 	if (atomic_dec_and_test(&dip->pending_bios))
 		bio_io_error(dip->orig_bio);
 
+	if (orig_bdev)
+		bdput(orig_bdev);
 	/* bio_end_io() will handle error, so we needn't return it */
 	return 0;
 }

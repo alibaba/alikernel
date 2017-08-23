@@ -747,7 +747,7 @@ static void flush_pending_writes(struct r1conf *conf)
 			struct bio *next = bio->bi_next;
 			bio->bi_next = NULL;
 			if (unlikely((bio_op(bio) == REQ_OP_DISCARD) &&
-			    !blk_queue_discard(bdev_get_queue(bio->bi_bdev))))
+			    !blk_queue_discard(bio->bi_disk->queue)))
 				/* Just ignore it */
 				bio_endio(bio);
 			else
@@ -1021,7 +1021,7 @@ static void raid1_unplug(struct blk_plug_cb *cb, bool from_schedule)
 		struct bio *next = bio->bi_next;
 		bio->bi_next = NULL;
 		if (unlikely((bio_op(bio) == REQ_OP_DISCARD) &&
-		    !blk_queue_discard(bdev_get_queue(bio->bi_bdev))))
+		    !blk_queue_discard(bio->bi_disk->queue)))
 			/* Just ignore it */
 			bio_endio(bio);
 		else
@@ -1153,7 +1153,7 @@ read_again:
 
 		read_bio->bi_iter.bi_sector = r1_bio->sector +
 			mirror->rdev->data_offset;
-		read_bio->bi_bdev = mirror->rdev->bdev;
+		bio_set_dev(read_bio, mirror->rdev->bdev);
 		read_bio->bi_end_io = raid1_end_read_request;
 		bio_set_op_attrs(read_bio, op, do_sync);
 		read_bio->bi_private = r1_bio;
@@ -1363,7 +1363,7 @@ read_again:
 
 		mbio->bi_iter.bi_sector	= (r1_bio->sector +
 				   conf->mirrors[i].rdev->data_offset);
-		mbio->bi_bdev = conf->mirrors[i].rdev->bdev;
+		bio_set_dev(mbio, conf->mirrors[i].rdev->bdev);
 		mbio->bi_end_io	= raid1_end_write_request;
 		bio_set_op_attrs(mbio, op, do_flush_fua | do_sync);
 		mbio->bi_private = r1_bio;
@@ -1830,8 +1830,7 @@ static int fix_sync_read_error(struct r1bio *r1_bio)
 			 */
 			printk(KERN_ALERT "md/raid1:%s: %s: unrecoverable I/O read error"
 			       " for block %llu\n",
-			       mdname(mddev),
-			       bdevname(bio->bi_bdev, b),
+			       mdname(mddev), bio_devname(bio, b),
 			       (unsigned long long)r1_bio->sector);
 			for (d = 0; d < conf->raid_disks * 2; d++) {
 				rdev = conf->mirrors[d].rdev;
@@ -1925,7 +1924,7 @@ static void process_checks(struct r1bio *r1_bio)
 		b->bi_iter.bi_size = r1_bio->sectors << 9;
 		b->bi_iter.bi_sector = r1_bio->sector +
 			conf->mirrors[i].rdev->data_offset;
-		b->bi_bdev = conf->mirrors[i].rdev->bdev;
+		bio_set_dev(b, conf->mirrors[i].rdev->bdev);
 		b->bi_end_io = end_sync_read;
 		b->bi_private = r1_bio;
 
@@ -2204,7 +2203,7 @@ static int narrow_write_error(struct r1bio *r1_bio, int i)
 
 		bio_trim(wbio, sector - r1_bio->sector, sectors);
 		wbio->bi_iter.bi_sector += rdev->data_offset;
-		wbio->bi_bdev = rdev->bdev;
+		bio_set_dev(wbio, rdev->bdev);
 
 		if (submit_bio_wait(wbio) < 0)
 			/* failure! */
@@ -2302,7 +2301,7 @@ static void handle_read_error(struct r1conf *conf, struct r1bio *r1_bio)
 	 */
 
 	bio = r1_bio->bios[r1_bio->read_disk];
-	bdevname(bio->bi_bdev, b);
+	bio_devname(bio, b);
 	bio_put(bio);
 	r1_bio->bios[r1_bio->read_disk] = NULL;
 
@@ -2340,7 +2339,7 @@ read_more:
 				   (unsigned long long)r1_bio->sector,
 				   bdevname(rdev->bdev, b));
 		bio->bi_iter.bi_sector = r1_bio->sector + rdev->data_offset;
-		bio->bi_bdev = rdev->bdev;
+		bio_set_dev(bio, rdev->bdev);
 		bio->bi_end_io = raid1_end_read_request;
 		bio_set_op_attrs(bio, REQ_OP_READ, do_sync);
 		bio->bi_private = r1_bio;
@@ -2624,7 +2623,7 @@ static sector_t raid1_sync_request(struct mddev *mddev, sector_t sector_nr,
 		if (bio->bi_end_io) {
 			atomic_inc(&rdev->nr_pending);
 			bio->bi_iter.bi_sector = sector_nr + rdev->data_offset;
-			bio->bi_bdev = rdev->bdev;
+			bio_set_dev(bio, rdev->bdev);
 			bio->bi_private = r1_bio;
 		}
 	}
@@ -2755,14 +2754,14 @@ static sector_t raid1_sync_request(struct mddev *mddev, sector_t sector_nr,
 			bio = r1_bio->bios[i];
 			if (bio->bi_end_io == end_sync_read) {
 				read_targets--;
-				md_sync_acct(bio->bi_bdev, nr_sectors);
+				md_sync_acct_bio(bio, nr_sectors);
 				generic_make_request(bio);
 			}
 		}
 	} else {
 		atomic_set(&r1_bio->remaining, 1);
 		bio = r1_bio->bios[r1_bio->read_disk];
-		md_sync_acct(bio->bi_bdev, nr_sectors);
+		md_sync_acct_bio(bio, nr_sectors);
 		generic_make_request(bio);
 
 	}

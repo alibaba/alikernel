@@ -268,7 +268,7 @@ static int stripe_map_range(struct stripe_c *sc, struct bio *bio,
 	stripe_map_range_sector(sc, bio_end_sector(bio),
 				target_stripe, &end);
 	if (begin < end) {
-		bio->bi_bdev = sc->stripe[target_stripe].dev->bdev;
+		bio_set_dev(bio, sc->stripe[target_stripe].dev->bdev);
 		bio->bi_iter.bi_sector = begin +
 			sc->stripe[target_stripe].physical_start;
 		bio->bi_iter.bi_size = to_bytes(end - begin);
@@ -289,7 +289,7 @@ static int stripe_map(struct dm_target *ti, struct bio *bio)
 	if (bio->bi_opf & REQ_PREFLUSH) {
 		target_bio_nr = dm_bio_get_target_bio_nr(bio);
 		BUG_ON(target_bio_nr >= sc->stripes);
-		bio->bi_bdev = sc->stripe[target_bio_nr].dev->bdev;
+		bio_set_dev(bio, sc->stripe[target_bio_nr].dev->bdev);
 		return DM_MAPIO_REMAPPED;
 	}
 	if (unlikely(bio_op(bio) == REQ_OP_DISCARD) ||
@@ -303,7 +303,7 @@ static int stripe_map(struct dm_target *ti, struct bio *bio)
 			  &stripe, &bio->bi_iter.bi_sector);
 
 	bio->bi_iter.bi_sector += sc->stripe[stripe].physical_start;
-	bio->bi_bdev = sc->stripe[stripe].dev->bdev;
+	bio_set_dev(bio, sc->stripe[stripe].dev->bdev);
 
 	return DM_MAPIO_REMAPPED;
 }
@@ -390,9 +390,7 @@ static int stripe_end_io(struct dm_target *ti, struct bio *bio, int error)
 		return error;
 
 	memset(major_minor, 0, sizeof(major_minor));
-	sprintf(major_minor, "%d:%d",
-		MAJOR(disk_devt(bio->bi_bdev->bd_disk)),
-		MINOR(disk_devt(bio->bi_bdev->bd_disk)));
+	sprintf(major_minor, "%d:%d", MAJOR(bio_dev(bio)), MINOR(bio_dev(bio)));
 
 	/*
 	 * Test to see which stripe drive triggered the event

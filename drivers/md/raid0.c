@@ -484,12 +484,12 @@ static void raid0_make_request(struct mddev *mddev, struct bio *bio)
 
 		zone = find_zone(mddev->private, &sector);
 		tmp_dev = map_sector(mddev, zone, sector, &sector);
-		split->bi_bdev = tmp_dev->bdev;
+		bio_set_dev(split, tmp_dev->bdev);
 		split->bi_iter.bi_sector = sector + zone->dev_start +
 			tmp_dev->data_offset;
 
 		if (unlikely((bio_op(split) == REQ_OP_DISCARD) &&
-			 !blk_queue_discard(bdev_get_queue(split->bi_bdev)))) {
+			 !blk_queue_discard(split->bi_disk->queue))) {
 			/* Just ignore it */
 			bio_endio(split);
 		} else
