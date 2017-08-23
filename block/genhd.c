@@ -45,6 +45,15 @@ static void disk_add_events(struct gendisk *disk);
 static void disk_del_events(struct gendisk *disk);
 static void disk_release_events(struct gendisk *disk);
 
+struct hd_struct *__disk_get_part(struct gendisk *disk, int partno)
+{
+	struct disk_part_tbl *ptbl = rcu_dereference(disk->part_tbl);
+
+	if (unlikely(partno < 0 || partno >= ptbl->len))
+		return NULL;
+	return rcu_dereference(ptbl->part[partno]);
+}
+
 /**
  * disk_get_part - get partition
  * @disk: disk to look partition from
@@ -61,21 +70,12 @@ static void disk_release_events(struct gendisk *disk);
  */
 struct hd_struct *disk_get_part(struct gendisk *disk, int partno)
 {
-	struct hd_struct *part = NULL;
-	struct disk_part_tbl *ptbl;
-
-	if (unlikely(partno < 0))
-		return NULL;
+	struct hd_struct *part;
 
 	rcu_read_lock();
-
-	ptbl = rcu_dereference(disk->part_tbl);
-	if (likely(partno < ptbl->len)) {
-		part = rcu_dereference(ptbl->part[partno]);
-		if (part)
-			get_device(part_to_dev(part));
-	}
-
+	part = __disk_get_part(disk, partno);
+	if (part)
+		get_device(part_to_dev(part));
 	rcu_read_unlock();
 
 	return part;
