@@ -2215,12 +2215,11 @@ static void unlock_page_lru(struct page *page, int isolated)
 	spin_unlock_irq(zone_lru_lock(zone));
 }
 
-static void commit_charge(struct page *page, struct mem_cgroup *memcg,
+static struct mem_cgroup *commit_charge(struct page *page, struct mem_cgroup *memcg,
 			  bool lrucare)
 {
+	struct mem_cgroup *oldmemcg;
 	int isolated;
-
-	VM_BUG_ON_PAGE(page->mem_cgroup, page);
 
 	/*
 	 * In some cases, SwapCache and FUSE(splice_buf->radixtree), the page
@@ -2229,6 +2228,7 @@ static void commit_charge(struct page *page, struct mem_cgroup *memcg,
 	if (lrucare)
 		lock_page_lru(page, &isolated);
 
+	oldmemcg = page->mem_cgroup;
 	/*
 	 * Nobody should be changing or seriously looking at
 	 * page->mem_cgroup at this point:
@@ -2247,6 +2247,8 @@ static void commit_charge(struct page *page, struct mem_cgroup *memcg,
 
 	if (lrucare)
 		unlock_page_lru(page, isolated);
+
+	return oldmemcg;
 }
 
 #ifndef CONFIG_SLOB
@@ -5710,6 +5712,98 @@ bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg)
 	return true;
 }
 
+bool mem_cgroup_is_offline(struct page *page)
+{
+	struct mem_cgroup *memcg;
+
+	if (mem_cgroup_disabled())
+		return false;
+
+	VM_BUG_ON_PAGE(!page->mem_cgroup, page);
+	VM_BUG_ON_PAGE(!PageLocked(page), page);
+
+	memcg = page->mem_cgroup;
+
+	return !(memcg->css.flags & CSS_ONLINE);
+}
+
+int mem_cgroup_try_charge_many(struct mm_struct *mm, gfp_t gfp_mask,
+		struct mem_cgroup **memcgp, unsigned int nr_pages)
+{
+	struct mem_cgroup *memcg = *memcgp;
+	int ret;
+
+	if (mem_cgroup_disabled())
+		return 0;
+	if (!memcg)
+		memcg = get_mem_cgroup_from_mm(mm);
+
+	ret = try_charge(memcg, gfp_mask, nr_pages);
+	if (!ret && !*memcgp)
+		*memcgp = memcg;
+	return ret;
+}
+
+/*
+ * Try to recharge regular file page whose previous memcg is offlined.
+ * If the page is not a candidate, return 0.
+ * When succeed, return 0 and the charged memcg in *memcgp.
+ * When out of the memory, return -ENOMEM.
+ * When the page is get truncated under us after we charged successfully,
+ * cancel the previous charge and return -ENOENT and the charged memcg
+ * in *memcgp.
+ */
+int mem_cgroup_try_recharge_file_page(struct vm_area_struct *vma,
+				struct mem_cgroup **memcgp,
+				struct page *page)
+{
+	struct address_space *mapping;
+	int ret;
+
+	if (mem_cgroup_disabled())
+		return 0;
+	if (!page->mapping)
+		return 0;
+	if (PageSwapBacked(page))
+		return 0;
+	if (PageCompound(page))
+		return 0;
+	if (!mem_cgroup_is_offline(page))
+		return 0;
+
+	ret = mem_cgroup_try_charge_many(vma->vm_mm, GFP_ATOMIC, memcgp, 1);
+	if (ret) {
+		mapping = page->mapping;
+		/* We could stall in reclaim, release the PG_LOCK */
+		unlock_page(page);
+		ret = mem_cgroup_try_charge_many(vma->vm_mm,
+				GFP_KERNEL, memcgp, 1);
+		if (ret) {
+			put_page(page);
+			return -ENOMEM;
+		}
+		lock_page(page);
+		/* Did it get truncated? */
+		if (page->mapping != mapping) {
+			unlock_page(page);
+			put_page(page);
+			cancel_charge(*memcgp, 1);
+			return -ENOENT;
+		}
+	}
+
+	return 0;
+}
+
+void mem_cgroup_cancel_charge_many(struct mem_cgroup *memcg,
+			unsigned int nr_pages)
+{
+	if (mem_cgroup_disabled())
+		return;
+
+	cancel_charge(memcg, nr_pages);
+}
+
 /**
  * mem_cgroup_try_charge - try charging a page
  * @page: page to charge
@@ -5795,6 +5889,7 @@ void mem_cgroup_commit_charge(struct page *page, struct mem_cgroup *memcg,
 			      bool lrucare, bool compound)
 {
 	unsigned int nr_pages = compound ? hpage_nr_pages(page) : 1;
+	struct mem_cgroup *oldmemcg;
 
 	VM_BUG_ON_PAGE(!page->mapping, page);
 	VM_BUG_ON_PAGE(PageLRU(page) && !lrucare, page);
@@ -5809,11 +5904,18 @@ void mem_cgroup_commit_charge(struct page *page, struct mem_cgroup *memcg,
 	if (!memcg)
 		return;
 
-	commit_charge(page, memcg, lrucare);
+	oldmemcg = commit_charge(page, memcg, lrucare);
 
 	local_irq_disable();
 	mem_cgroup_charge_statistics(memcg, page, compound, nr_pages);
 	memcg_check_events(memcg, page);
+	if (lrucare && oldmemcg) {
+		WARN_ON(oldmemcg == memcg);
+		mem_cgroup_charge_statistics(oldmemcg, page,
+				compound, -nr_pages);
+		memcg_check_events(oldmemcg, page);
+		cancel_charge(oldmemcg, nr_pages);
+	}
 	local_irq_enable();
 
 	if (do_memsw_account() && PageSwapCache(page)) {

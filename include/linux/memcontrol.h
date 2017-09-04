@@ -335,15 +335,23 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 	cgroup_file_notify(&memcg->events_file);
 }
 
+bool mem_cgroup_is_offline(struct page *page);
 bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg);
 
 int mem_cgroup_try_charge(struct page *page, struct mm_struct *mm,
 			  gfp_t gfp_mask, struct mem_cgroup **memcgp,
 			  bool compound);
+int mem_cgroup_try_charge_many(struct mm_struct *mm, gfp_t gfp_mask,
+		struct mem_cgroup **memcgp, unsigned int nr_pages);
+int mem_cgroup_try_recharge_file_page(struct vm_area_struct *vma,
+				struct mem_cgroup **memcgp,
+				struct page *page);
 void mem_cgroup_commit_charge(struct page *page, struct mem_cgroup *memcg,
 			      bool lrucare, bool compound);
 void mem_cgroup_cancel_charge(struct page *page, struct mem_cgroup *memcg,
 		bool compound);
+void mem_cgroup_cancel_charge_many(struct mem_cgroup *memcg,
+		unsigned int nr_pages);
 void mem_cgroup_uncharge(struct page *page);
 void mem_cgroup_uncharge_list(struct list_head *page_list);
 
@@ -637,6 +645,11 @@ static inline bool mem_cgroup_disabled(void)
 	return true;
 }
 
+static inline bool mem_cgroup_is_offline(struct page *page)
+{
+	return false;
+}
+
 static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 				     enum mem_cgroup_events_index idx,
 				     unsigned int nr)
@@ -658,6 +671,22 @@ static inline int mem_cgroup_try_charge(struct page *page, struct mm_struct *mm,
 	return 0;
 }
 
+static inline int mem_cgroup_try_charge_many(struct mm_struct *mm,
+					gfp_t gfp_mask,
+					struct mem_cgroup **memcgp,
+					unsigned int nr_pages)
+{
+	return 0;
+}
+
+static inline int mem_cgroup_try_recharge_file_page(struct vm_area_struct *vma,
+				struct mem_cgroup **memcgp,
+				struct page *page)
+{
+	*memcgp = NULL;
+	return 0;
+}
+
 static inline void mem_cgroup_commit_charge(struct page *page,
 					    struct mem_cgroup *memcg,
 					    bool lrucare, bool compound)
@@ -667,6 +696,11 @@ static inline void mem_cgroup_commit_charge(struct page *page,
 static inline void mem_cgroup_cancel_charge(struct page *page,
 					    struct mem_cgroup *memcg,
 					    bool compound)
+{
+}
+
+static inline void mem_cgroup_cancel_charge_many(struct mem_cgroup *memcg,
+				unsigned int nr_pages)
 {
 }
 

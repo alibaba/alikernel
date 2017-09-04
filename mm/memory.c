@@ -3153,8 +3153,9 @@ out:
 static int do_read_fault(struct fault_env *fe, pgoff_t pgoff)
 {
 	struct vm_area_struct *vma = fe->vma;
+	struct mem_cgroup *memcg = NULL;
 	struct page *fault_page;
-	int ret = 0;
+	int ret = 0, tmp;
 
 	/*
 	 * Let's call ->map_pages() first and use ->fault() as fallback
@@ -3171,12 +3172,33 @@ static int do_read_fault(struct fault_env *fe, pgoff_t pgoff)
 	if (unlikely(ret & (VM_FAULT_ERROR | VM_FAULT_NOPAGE | VM_FAULT_RETRY)))
 		return ret;
 
+	tmp = mem_cgroup_try_recharge_file_page(vma, &memcg, fault_page);
+	if (tmp) {
+		if (tmp == -ENOMEM)
+			return VM_FAULT_OOM;
+		if (WARN_ON(!memcg))
+			return 0;
+		css_put(&memcg->css);
+		return 0;
+	}
 	ret |= alloc_set_pte(fe, NULL, fault_page);
-	if (fe->pte)
+	if (fe->pte) {
+		if (memcg && !(ret & (VM_FAULT_ERROR |
+			VM_FAULT_NOPAGE | VM_FAULT_RETRY)))
+			mem_cgroup_commit_charge(fault_page,
+				memcg, true, false);
 		pte_unmap_unlock(fe->pte, fe->ptl);
+	}
 	unlock_page(fault_page);
-	if (unlikely(ret & (VM_FAULT_ERROR | VM_FAULT_NOPAGE | VM_FAULT_RETRY)))
+	if (unlikely(ret & (VM_FAULT_ERROR |
+			VM_FAULT_NOPAGE | VM_FAULT_RETRY))) {
+		if (memcg)
+			mem_cgroup_cancel_charge_many(memcg, 1);
 		put_page(fault_page);
+	}
+
+	if (memcg)
+		css_put(&memcg->css);
 	return ret;
 }
 
@@ -3232,6 +3254,7 @@ static int do_shared_fault(struct fault_env *fe, pgoff_t pgoff)
 	struct vm_area_struct *vma = fe->vma;
 	struct page *fault_page;
 	struct address_space *mapping;
+	struct mem_cgroup *memcg = NULL;
 	int dirtied = 0;
 	int ret, tmp;
 
@@ -3253,11 +3276,27 @@ static int do_shared_fault(struct fault_env *fe, pgoff_t pgoff)
 		}
 	}
 
+	tmp = mem_cgroup_try_recharge_file_page(vma, &memcg, fault_page);
+	if (tmp) {
+		if (tmp == -ENOMEM)
+			return VM_FAULT_OOM;
+		if (WARN_ON(!memcg))
+			return 0;
+		css_put(&memcg->css);
+		return 0;
+	}
 	ret |= alloc_set_pte(fe, NULL, fault_page);
-	if (fe->pte)
+	if (fe->pte) {
+		if (memcg && !(ret & (VM_FAULT_ERROR |
+			VM_FAULT_NOPAGE | VM_FAULT_RETRY)))
+			mem_cgroup_commit_charge(fault_page,
+				memcg, true, false);
 		pte_unmap_unlock(fe->pte, fe->ptl);
+	}
 	if (unlikely(ret & (VM_FAULT_ERROR | VM_FAULT_NOPAGE |
 					VM_FAULT_RETRY))) {
+		if (memcg)
+			mem_cgroup_cancel_charge_many(memcg, 1);
 		unlock_page(fault_page);
 		put_page(fault_page);
 		return ret;
@@ -3273,6 +3312,8 @@ static int do_shared_fault(struct fault_env *fe, pgoff_t pgoff)
 	 */
 	mapping = page_rmapping(fault_page);
 	unlock_page(fault_page);
+	if (memcg)
+		css_put(&memcg->css);
 	if ((dirtied || vma->vm_ops->page_mkwrite) && mapping) {
 		/*
 		 * Some device drivers do not set page.mapping but still
