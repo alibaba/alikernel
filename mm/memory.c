@@ -3155,7 +3155,7 @@ static int do_read_fault(struct fault_env *fe, pgoff_t pgoff)
 	struct vm_area_struct *vma = fe->vma;
 	struct mem_cgroup *memcg = NULL;
 	struct page *fault_page;
-	int ret = 0, tmp;
+	int ret = 0, tmp = 0;
 
 	/*
 	 * Let's call ->map_pages() first and use ->fault() as fallback
@@ -3172,7 +3172,10 @@ static int do_read_fault(struct fault_env *fe, pgoff_t pgoff)
 	if (unlikely(ret & (VM_FAULT_ERROR | VM_FAULT_NOPAGE | VM_FAULT_RETRY)))
 		return ret;
 
-	tmp = mem_cgroup_try_recharge_file_page(vma, &memcg, fault_page);
+	if (cacherecharge_enabled()) {
+		tmp = mem_cgroup_try_recharge_file_page(vma,
+					&memcg, fault_page);
+	}
 	if (tmp) {
 		if (tmp == -ENOMEM)
 			return VM_FAULT_OOM;
@@ -3276,7 +3279,11 @@ static int do_shared_fault(struct fault_env *fe, pgoff_t pgoff)
 		}
 	}
 
-	tmp = mem_cgroup_try_recharge_file_page(vma, &memcg, fault_page);
+	tmp = 0;
+	if (cacherecharge_enabled()) {
+		tmp = mem_cgroup_try_recharge_file_page(vma,
+			&memcg, fault_page);
+	}
 	if (tmp) {
 		if (tmp == -ENOMEM)
 			return VM_FAULT_OOM;

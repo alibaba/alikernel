@@ -5712,6 +5712,13 @@ bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg)
 	return true;
 }
 
+int memcg_cacherecharge;
+
+bool cacherecharge_enabled(void)
+{
+	return memcg_cacherecharge ? true : false;
+}
+
 bool mem_cgroup_is_offline(struct page *page)
 {
 	struct mem_cgroup *memcg;

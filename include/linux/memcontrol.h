@@ -335,6 +335,7 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 	cgroup_file_notify(&memcg->events_file);
 }
 
+bool cacherecharge_enabled(void);
 bool mem_cgroup_is_offline(struct page *page);
 bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg);
 
@@ -643,6 +644,11 @@ struct mem_cgroup;
 static inline bool mem_cgroup_disabled(void)
 {
 	return true;
+}
+
+static inline bool cacherecharge_enabled(void)
+{
+	return false;
 }
 
 static inline bool mem_cgroup_is_offline(struct page *page)

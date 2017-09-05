@@ -170,6 +170,9 @@ static const struct bin_table bin_vm_table[] = {
 	{ CTL_INT,	VM_PANIC_ON_OOM,		"panic_on_oom" },
 	{ CTL_INT,	VM_VDSO_ENABLED,		"vdso_enabled" },
 	{ CTL_INT,	VM_MIN_SLAB,			"min_slab_ratio" },
+#ifdef CONFIG_MEMCG
+	{ CTL_INT,      MEMCG_CACHERECHARGE,            "cacherecharge" },
+#endif
 
 	{}
 };

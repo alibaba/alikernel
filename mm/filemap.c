@@ -2229,8 +2229,9 @@ void filemap_map_pages(struct fault_env *fe,
 	loff_t size;
 	struct page *head, *page;
 	struct mem_cgroup *memcg = NULL;
-	bool charged;
+	bool charged, recharge;
 
+	recharge = cacherecharge_enabled();
 	rcu_read_lock();
 	radix_tree_for_each_slot(slot, &mapping->page_tree, &iter,
 			start_pgoff) {
@@ -2287,8 +2288,8 @@ repeat:
 		 * and now no regular filesystem support THP, so no need to
 		 * to consider THP here
 		 */
-		if (!PageSwapBacked(page) && !PageCompound(page)
-			&& mem_cgroup_is_offline(page) &&
+		if (recharge && !PageSwapBacked(page) &&
+			!PageCompound(page) && mem_cgroup_is_offline(page) &&
 			!mem_cgroup_try_charge_many(fe->vma->vm_mm,
 					GFP_ATOMIC, &memcg, 1))
 			charged = true;
