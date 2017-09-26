@@ -128,13 +128,14 @@ static void early_serial_write(struct console *con, const char *s, unsigned n)
 	}
 }
 
-static __init void early_serial_hw_init(unsigned int divisor)
+static __init void early_serial_hw_init(unsigned int divisor,
+					unsigned char fcr)
 {
 	unsigned char c;
 
 	serial_out(early_serial_base, LCR, 0x3);	/* 8n1 */
 	serial_out(early_serial_base, IER, 0);	/* no interrupt */
-	serial_out(early_serial_base, FCR, 0);	/* no fifo */
+	serial_out(early_serial_base, FCR, fcr);
 	serial_out(early_serial_base, MCR, 0x3);	/* DTR + RTS */
 
 	c = serial_in(early_serial_base, LCR);
@@ -189,7 +190,7 @@ static __init void early_serial_init(char *s)
 	serial_out = io_serial_out;
 
 	/* Set up the HW */
-	early_serial_hw_init(divisor);
+	early_serial_hw_init(divisor, 0);
 }
 
 #ifdef CONFIG_PCI
@@ -305,7 +306,7 @@ static __init void early_pci_serial_init(char *s)
 	divisor = 115200 / baud;
 
 	/* Set up the HW */
-	early_serial_hw_init(divisor);
+	early_serial_hw_init(divisor, 0);
 }
 #endif
 
