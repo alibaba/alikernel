@@ -220,8 +220,9 @@ static __init void early_pci_serial_init(char *s)
 	unsigned int divisor;
 	unsigned long baud = DEFAULT_BAUD;
 	u8 bus, slot, func;
-	u32 classcode, bar0;
+	u32 classcode, bar0, vdid;
 	u16 cmdreg;
+	unsigned char fcr = 0;
 	char *e;
 
 
@@ -305,8 +306,21 @@ static __init void early_pci_serial_init(char *s)
 	/* Convert from baud to divisor value */
 	divisor = 115200 / baud;
 
-	/* Set up the HW */
-	early_serial_hw_init(divisor, 0);
+	/*
+	 * Set up the HW. The port won't work if FCR isn't 0xc1
+	 * on below PCI device on Deverton platform. It's not
+	 * certain it's board hardware issue or chip issue.
+	 * Anyway, it makes the console port working on Deverton
+	 * platform.
+	 *
+	 * 00:1b.3 Serial controller: Intel Corporation Device 19e8 (rev 11)
+	 */
+	vdid = read_pci_config(bus, slot, func, PCI_VENDOR_ID);
+	if ((vdid & 0xffff) == PCI_VENDOR_ID_INTEL &&
+	    (vdid >> 16) == 0x19e8)
+		fcr = 0xc1;
+
+	early_serial_hw_init(divisor, fcr);
 }
 #endif
 
