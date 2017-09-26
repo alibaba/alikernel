@@ -128,7 +128,7 @@ static void early_serial_write(struct console *con, const char *s, unsigned n)
 	}
 }
 
-static __init void early_serial_hw_init(unsigned divisor)
+static __init void early_serial_hw_init(unsigned int divisor)
 {
 	unsigned char c;
 
@@ -148,7 +148,7 @@ static __init void early_serial_hw_init(unsigned divisor)
 
 static __init void early_serial_init(char *s)
 {
-	unsigned divisor;
+	unsigned int divisor;
 	unsigned long baud = DEFAULT_BAUD;
 	char *e;
 
@@ -216,7 +216,7 @@ static unsigned int mem32_serial_in(unsigned long addr, int offset)
  */
 static __init void early_pci_serial_init(char *s)
 {
-	unsigned divisor;
+	unsigned int divisor;
 	unsigned long baud = DEFAULT_BAUD;
 	u8 bus, slot, func;
 	u32 classcode, bar0;
