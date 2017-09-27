@@ -3402,7 +3402,7 @@ static int tcp_send_syn_data(struct sock *sk, struct sk_buff *syn)
 		goto fallback;
 	}
 
-	if (sysctl_tcp_fastopen & TFO_CLIENT_NO_COOKIE)
+	if (sock_net(sk)->ipv4.sysctl_tcp_fastopen & TFO_CLIENT_NO_COOKIE)
 		fo->cookie.len = -1;
 	else if (fo->cookie.len <= 0)
 		goto fallback;
