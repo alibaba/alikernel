@@ -69,12 +69,13 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 
 		for (lru = LRU_BASE; lru < NR_LRU_LISTS; lru++)
 			pages[lru] = global_node_page_state(NR_LRU_BASE + lru);
+		available = si_mem_available();
 	} else {
 		cgroup_mem_sw_info(&i, memcg, &cached, pages);
+		available = i.freeram;
 	}
 	committed = percpu_counter_read_positive(&vm_committed_as);
 
-	available = si_mem_available();
 
 	show_val_kb(m, "MemTotal:       ", i.totalram);
 	show_val_kb(m, "MemFree:        ", i.freeram);
