@@ -76,7 +76,6 @@
 #include <asm/unaligned.h>
 #include <linux/errqueue.h>
 
-int sysctl_tcp_app_win __read_mostly = 31;
 int sysctl_tcp_adv_win_scale __read_mostly = 1;
 EXPORT_SYMBOL(sysctl_tcp_adv_win_scale);
 
@@ -422,6 +421,7 @@ static void tcp_fixup_rcvbuf(struct sock *sk)
  */
 void tcp_init_buffer_space(struct sock *sk)
 {
+	int tcp_app_win = sock_net(sk)->ipv4.sysctl_tcp_app_win;
 	struct tcp_sock *tp = tcp_sk(sk);
 	int maxwin;
 
@@ -439,14 +439,14 @@ void tcp_init_buffer_space(struct sock *sk)
 	if (tp->window_clamp >= maxwin) {
 		tp->window_clamp = maxwin;
 
-		if (sysctl_tcp_app_win && maxwin > 4 * tp->advmss)
+		if (tcp_app_win && maxwin > 4 * tp->advmss)
 			tp->window_clamp = max(maxwin -
-					       (maxwin >> sysctl_tcp_app_win),
+					       (maxwin >> tcp_app_win),
 					       4 * tp->advmss);
 	}
 
 	/* Force reservation of one segment. */
-	if (sysctl_tcp_app_win &&
+	if (tcp_app_win &&
 	    tp->window_clamp > 2 * tp->advmss &&
 	    tp->window_clamp + tp->advmss > maxwin)
 		tp->window_clamp = max(2 * tp->advmss, maxwin - tp->advmss);
