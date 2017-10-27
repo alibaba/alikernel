@@ -2871,7 +2871,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 	}
 
 	/* Use RACK to detect loss */
-	if (sysctl_tcp_recovery & TCP_RACK_LOST_RETRANS &&
+	if (sock_net(sk)->ipv4.sysctl_tcp_recovery & TCP_RACK_LOST_RETRANS &&
 	    tcp_rack_mark_lost(sk)) {
 		flag |= FLAG_LOST_RETRANS;
 		*ack_flag |= FLAG_LOST_RETRANS;

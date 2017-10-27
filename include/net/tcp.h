@@ -1047,7 +1047,8 @@ static inline void tcp_enable_early_retrans(struct tcp_sock *tp)
 	struct net *net = sock_net((struct sock *)tp);
 
 	tp->do_early_retrans = net->ipv4.sysctl_tcp_early_retrans &&
-		net->ipv4.sysctl_tcp_early_retrans < 4 && !sysctl_tcp_thin_dupack &&
+		net->ipv4.sysctl_tcp_early_retrans < 4 &&
+		!sysctl_tcp_thin_dupack &&
 		net->ipv4.sysctl_tcp_reordering == 3;
 }
 
@@ -1846,11 +1847,6 @@ int tcpv4_offload_init(void);
 
 void tcp_v4_init(void);
 void tcp_init(void);
-
-/* tcp_recovery.c */
-
-/* Flags to enable various loss recovery features. See below */
-extern int sysctl_tcp_recovery;
 
 /* Use TCP RACK to detect (some) tail and retransmit losses */
 #define TCP_RACK_LOST_RETRANS  0x1
