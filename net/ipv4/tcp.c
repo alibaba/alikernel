@@ -282,8 +282,6 @@
 #include <asm/unaligned.h>
 #include <net/busy_poll.h>
 
-int sysctl_tcp_min_tso_segs __read_mostly = 2;
-
 int sysctl_tcp_autocorking __read_mostly = 1;
 
 struct percpu_counter tcp_orphan_count;
