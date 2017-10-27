@@ -240,8 +240,6 @@ extern int sysctl_tcp_wmem[3];
 extern int sysctl_tcp_rmem[3];
 extern int sysctl_tcp_low_latency;
 extern int sysctl_tcp_thin_dupack;
-extern int sysctl_tcp_pacing_ca_ratio;
-
 extern atomic_long_t tcp_memory_allocated;
 extern struct percpu_counter tcp_sockets_allocated;
 extern int tcp_memory_pressure;
