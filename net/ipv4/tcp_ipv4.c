@@ -2476,6 +2476,7 @@ static int __net_init tcp_sk_init(struct net *net)
 	/* By default, RFC2861 behavior.  */
 	net->ipv4.sysctl_tcp_slow_start_after_idle = 1;
 
+	net->ipv4.sysctl_tcp_retrans_collapse = 1;
 	net->ipv4.sysctl_tcp_fastopen = TFO_CLIENT_ENABLE;
 	spin_lock_init(&net->ipv4.tcp_fastopen_ctx_lock);
 
