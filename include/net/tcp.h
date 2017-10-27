@@ -238,7 +238,6 @@ extern int sysctl_tcp_reordering;
 extern long sysctl_tcp_mem[3];
 extern int sysctl_tcp_wmem[3];
 extern int sysctl_tcp_rmem[3];
-extern int sysctl_tcp_adv_win_scale;
 extern int sysctl_tcp_frto;
 extern int sysctl_tcp_low_latency;
 extern int sysctl_tcp_nometrics_save;
@@ -1260,11 +1259,11 @@ void tcp_select_initial_window(int __space, __u32 mss, __u32 *rcv_wnd,
 			       __u32 *window_clamp, int wscale_ok,
 			       __u8 *rcv_wscale, __u32 init_rcv_wnd);
 
-static inline int tcp_win_from_space(int space)
+static inline int tcp_win_from_space(const struct sock *sk, int space)
 {
-	int tcp_adv_win_scale = sysctl_tcp_adv_win_scale;
+	int tcp_adv_win_scale = sock_net(sk)->ipv4.sysctl_tcp_adv_win_scale;
 
-	return tcp_adv_win_scale <= 0 ?
+	return tcp_adv_win_scale<=0 ?
 		(space>>(-tcp_adv_win_scale)) :
 		space - (space>>tcp_adv_win_scale);
 }
@@ -1272,13 +1271,13 @@ static inline int tcp_win_from_space(int space)
 /* Note: caller must be prepared to deal with negative returns */
 static inline int tcp_space(const struct sock *sk)
 {
-	return tcp_win_from_space(sk->sk_rcvbuf -
+	return tcp_win_from_space(sk, sk->sk_rcvbuf -
 				  atomic_read(&sk->sk_rmem_alloc));
 }
 
 static inline int tcp_full_space(const struct sock *sk)
 {
-	return tcp_win_from_space(sk->sk_rcvbuf);
+	return tcp_win_from_space(sk, sk->sk_rcvbuf);
 }
 
 extern void tcp_openreq_init_rwin(struct request_sock *req,
