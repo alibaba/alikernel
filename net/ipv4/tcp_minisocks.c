@@ -27,8 +27,6 @@
 #include <net/inet_common.h>
 #include <net/xfrm.h>
 
-int sysctl_tcp_abort_on_overflow __read_mostly;
-
 static bool tcp_in_window(u32 seq, u32 end_seq, u32 s_win, u32 e_win)
 {
 	if (seq == s_win)
@@ -778,7 +776,7 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 	return inet_csk_complete_hashdance(sk, child, req, own_req);
 
 listen_overflow:
-	if (!sysctl_tcp_abort_on_overflow) {
+	if (!sock_net(sk)->ipv4.sysctl_tcp_abort_on_overflow) {
 		inet_rsk(req)->acked = 1;
 		return NULL;
 	}
