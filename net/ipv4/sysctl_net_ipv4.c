@@ -429,15 +429,6 @@ static struct ctl_table ipv4_table[] = {
 		.extra2		= &thousand,
 	},
 	{
-		.procname	= "tcp_autocorking",
-		.data		= &sysctl_tcp_autocorking,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_minmax,
-		.extra1		= &zero,
-		.extra2		= &one,
-	},
-	{
 		.procname	= "tcp_invalid_ratelimit",
 		.data		= &sysctl_tcp_invalid_ratelimit,
 		.maxlen		= sizeof(int),
@@ -1041,6 +1032,15 @@ static struct ctl_table ipv4_net_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec
+	},
+	{
+		.procname	= "tcp_autocorking",
+		.data		= &init_net.ipv4.sysctl_tcp_autocorking,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &zero,
+		.extra2		= &one,
 	},
 	{ }
 };

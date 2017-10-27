@@ -282,8 +282,6 @@
 #include <asm/unaligned.h>
 #include <net/busy_poll.h>
 
-int sysctl_tcp_autocorking __read_mostly = 1;
-
 struct percpu_counter tcp_orphan_count;
 EXPORT_SYMBOL_GPL(tcp_orphan_count);
 
@@ -640,7 +638,7 @@ static bool tcp_should_autocork(struct sock *sk, struct sk_buff *skb,
 				int size_goal)
 {
 	return skb->len < size_goal &&
-	       sysctl_tcp_autocorking &&
+	       sock_net(sk)->ipv4.sysctl_tcp_autocorking &&
 	       skb != tcp_write_queue_head(sk) &&
 	       atomic_read(&sk->sk_wmem_alloc) > skb->truesize;
 }
