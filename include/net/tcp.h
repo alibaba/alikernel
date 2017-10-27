@@ -257,7 +257,6 @@ extern int sysctl_tcp_workaround_signed_windows;
 extern int sysctl_tcp_slow_start_after_idle;
 extern int sysctl_tcp_thin_linear_timeouts;
 extern int sysctl_tcp_thin_dupack;
-extern int sysctl_tcp_early_retrans;
 extern int sysctl_tcp_limit_output_bytes;
 extern int sysctl_tcp_challenge_ack_limit;
 extern int sysctl_tcp_min_tso_segs;
@@ -1047,8 +1046,8 @@ static inline void tcp_enable_early_retrans(struct tcp_sock *tp)
 {
 	struct net *net = sock_net((struct sock *)tp);
 
-	tp->do_early_retrans = sysctl_tcp_early_retrans &&
-		sysctl_tcp_early_retrans < 4 && !sysctl_tcp_thin_dupack &&
+	tp->do_early_retrans = net->ipv4.sysctl_tcp_early_retrans &&
+		net->ipv4.sysctl_tcp_early_retrans < 4 && !sysctl_tcp_thin_dupack &&
 		net->ipv4.sysctl_tcp_reordering == 3;
 }
 

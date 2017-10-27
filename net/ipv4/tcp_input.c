@@ -96,7 +96,6 @@ int sysctl_tcp_min_rtt_wlen __read_mostly = 300;
 int sysctl_tcp_thin_dupack __read_mostly;
 
 int sysctl_tcp_moderate_rcvbuf __read_mostly = 1;
-int sysctl_tcp_early_retrans __read_mostly = 3;
 int sysctl_tcp_invalid_ratelimit __read_mostly = HZ/2;
 
 #define FLAG_DATA		0x01 /* Incoming frame contained data.		*/
@@ -2065,7 +2064,8 @@ static bool tcp_pause_early_retransmit(struct sock *sk, int flag)
 	 * max(RTT/4, 2msec) unless ack has ECE mark, no RTT samples
 	 * available, or RTO is scheduled to fire first.
 	 */
-	if (sysctl_tcp_early_retrans < 2 || sysctl_tcp_early_retrans > 3 ||
+	if (sock_net(sk)->ipv4.sysctl_tcp_early_retrans < 2 ||
+	    sock_net(sk)->ipv4.sysctl_tcp_early_retrans > 3 ||
 	    (flag & FLAG_ECE) || !tp->srtt_us)
 		return false;
 
