@@ -240,7 +240,6 @@ extern int sysctl_tcp_wmem[3];
 extern int sysctl_tcp_rmem[3];
 extern int sysctl_tcp_low_latency;
 extern int sysctl_tcp_thin_dupack;
-extern int sysctl_tcp_min_rtt_wlen;
 extern int sysctl_tcp_autocorking;
 extern int sysctl_tcp_invalid_ratelimit;
 extern int sysctl_tcp_pacing_ss_ratio;
