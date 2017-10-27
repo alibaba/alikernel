@@ -239,7 +239,6 @@ extern long sysctl_tcp_mem[3];
 extern int sysctl_tcp_wmem[3];
 extern int sysctl_tcp_rmem[3];
 extern int sysctl_tcp_low_latency;
-extern int sysctl_tcp_tso_win_divisor;
 extern int sysctl_tcp_workaround_signed_windows;
 extern int sysctl_tcp_thin_dupack;
 extern int sysctl_tcp_limit_output_bytes;
