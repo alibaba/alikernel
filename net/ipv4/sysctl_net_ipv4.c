@@ -326,13 +326,6 @@ static struct ctl_table ipv4_table[] = {
 		.proc_handler	= proc_dointvec_jiffies,
 	},
 	{
-		.procname	= "tcp_dsack",
-		.data		= &sysctl_tcp_dsack,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec
-	},
-	{
 		.procname	= "tcp_mem",
 		.maxlen		= sizeof(sysctl_tcp_mem),
 		.data		= &sysctl_tcp_mem,
@@ -1038,6 +1031,13 @@ static struct ctl_table ipv4_net_table[] = {
 	{
 		.procname	= "tcp_max_reordering",
 		.data		= &init_net.ipv4.sysctl_tcp_max_reordering,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec
+	},
+	{
+		.procname	= "tcp_dsack",
+		.data		= &init_net.ipv4.sysctl_tcp_dsack,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec
