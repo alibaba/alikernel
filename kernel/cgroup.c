@@ -3518,6 +3518,20 @@ static ssize_t cgroup_file_write(struct kernfs_open_file *of, char *buf,
 	struct cftype *cft = of->kn->priv;
 	struct cgroup_subsys_state *css;
 	int ret;
+	struct cgroup_namespace *ns = current->nsproxy->cgroup_ns;
+
+	if (ns != &init_cgroup_ns) {
+		struct cgroup *root_cgrp = NULL;
+
+		mutex_lock(&cgroup_mutex);
+		spin_lock_irq(&css_set_lock);
+		root_cgrp = cset_cgroup_from_root(ns->root_cset, cgrp->root);
+		spin_unlock_irq(&css_set_lock);
+		mutex_unlock(&cgroup_mutex);
+		if (test_bit(CGRP_NS_READONLY, &root_cgrp->flags)
+			&& (root_cgrp == cgrp) && !(cft->flags & CFTYPE_NS_WRITEABLE))
+			return -EPERM;
+	}
 
 	if (cft->write)
 		return cft->write(of, buf, nbytes, off);
@@ -4895,6 +4909,22 @@ static int cgroup_clone_children_write(struct cgroup_subsys_state *css,
 	return 0;
 }
 
+static u64 cgroup_ns_readonly_read(struct cgroup_subsys_state *css,
+				      struct cftype *cft)
+{
+	return test_bit(CGRP_NS_READONLY, &css->cgroup->flags);
+}
+
+static int cgroup_ns_readonly_write(struct cgroup_subsys_state *css,
+				       struct cftype *cft, u64 val)
+{
+	if (val)
+		set_bit(CGRP_NS_READONLY, &css->cgroup->flags);
+	else
+		clear_bit(CGRP_NS_READONLY, &css->cgroup->flags);
+	return 0;
+}
+
 /* cgroup core interface files for the default hierarchy */
 static struct cftype cgroup_dfl_base_files[] = {
 	{
@@ -4906,6 +4936,7 @@ static struct cftype cgroup_dfl_base_files[] = {
 		.seq_show = cgroup_pidlist_show,
 		.private = CGROUP_FILE_PROCS,
 		.write = cgroup_procs_write,
+		.flags = CFTYPE_NS_WRITEABLE,
 	},
 	{
 		.name = "cgroup.controllers",
@@ -4935,11 +4966,17 @@ static struct cftype cgroup_legacy_base_files[] = {
 		.seq_show = cgroup_pidlist_show,
 		.private = CGROUP_FILE_PROCS,
 		.write = cgroup_procs_write,
+		.flags = CFTYPE_NS_WRITEABLE,
 	},
 	{
 		.name = "cgroup.clone_children",
 		.read_u64 = cgroup_clone_children_read,
 		.write_u64 = cgroup_clone_children_write,
+	},
+	{
+		.name = "cgroup.ns_readonly",
+		.read_u64 = cgroup_ns_readonly_read,
+		.write_u64 = cgroup_ns_readonly_write,
 	},
 	{
 		.name = "cgroup.sane_behavior",
@@ -4954,6 +4991,7 @@ static struct cftype cgroup_legacy_base_files[] = {
 		.seq_show = cgroup_pidlist_show,
 		.private = CGROUP_FILE_TASKS,
 		.write = cgroup_tasks_write,
+		.flags = CFTYPE_NS_WRITEABLE,
 	},
 	{
 		.name = "notify_on_release",

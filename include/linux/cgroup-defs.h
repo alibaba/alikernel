@@ -59,6 +59,11 @@ enum {
 	 * specified at mount time and thus is implemented here.
 	 */
 	CGRP_CPUSET_CLONE_CHILDREN,
+	/*
+	 * set this flag in cgroup, then all the tasks created with new cgroup ns
+	 * cannot modify the files in this cgroup.
+	 */
+	CGRP_NS_READONLY,
 };
 
 /* cgroup_root->flags */
@@ -73,6 +78,7 @@ enum {
 	CFTYPE_NOT_ON_ROOT	= (1 << 1),	/* don't create on root cgrp */
 	CFTYPE_NO_PREFIX	= (1 << 3),	/* (DON'T USE FOR NEW FILES) no subsys prefix */
 	CFTYPE_WORLD_WRITABLE	= (1 << 4),	/* (DON'T USE FOR NEW FILES) S_IWUGO */
+	CFTYPE_NS_WRITEABLE     = (1 << 5),     /* writeable in new cgroup ns */
 
 	/* internal flags, do not use outside cgroup core proper */
 	__CFTYPE_ONLY_ON_DFL	= (1 << 16),	/* only on default hierarchy */
