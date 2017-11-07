@@ -236,8 +236,6 @@ void tcp_time_wait(struct sock *sk, int state, int timeo);
 extern int sysctl_tcp_max_orphans;
 extern int sysctl_tcp_reordering;
 extern long sysctl_tcp_mem[3];
-extern int sysctl_tcp_wmem[3];
-extern int sysctl_tcp_rmem[3];
 extern int sysctl_tcp_low_latency;
 extern int sysctl_tcp_thin_dupack;
 extern atomic_long_t tcp_memory_allocated;
