@@ -5036,7 +5036,7 @@ static void mem_cgroup_bind(struct cgroup_subsys_state *root_css)
 void cgroup_mem_sw_info(struct sysinfo *val, struct mem_cgroup *memcg,
 			long *cached, unsigned long pages[])
 {
-	unsigned long long limit, memsw_limit;
+	unsigned long limit, memsw_limit;
 	u64 memsw_limit_pages;
 	long cache_size, rss_size, swap_size;
 	unsigned int i;
