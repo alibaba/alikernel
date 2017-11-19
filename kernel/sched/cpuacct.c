@@ -855,11 +855,17 @@ bool in_instance_and_hiding(unsigned int cpu, struct task_struct *task,
 	struct cpumask cpus_allowed;
 	int i, id = 0;
 
-	if (!in_noninit_pid_ns(task))
+	if (!in_noninit_pid_ns(task)) {
+		/* Not in instance, cpu index is global.*/
+		*index = cpu;
 		return false;
+	}
 
-       if (!task_in_nonroot_cpuacct(task))
+	if (!task_in_nonroot_cpuacct(task)) {
+		/* Not in instance, cpu index is global.*/
+		*index = cpu;
 		return false;
+	}
 
 	*in_instance = true;
 	cpumask_copy(&cpus_allowed, cpu_possible_mask);
