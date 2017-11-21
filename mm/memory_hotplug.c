@@ -1155,7 +1155,7 @@ int __ref online_pages(unsigned long pfn, unsigned long nr_pages, int online_typ
 	init_per_zone_wmark_min();
 
 	if (onlined_pages) {
-		kswapd_run(nid);
+		kswapd_run(nid, NULL);
 		kcompactd_run(nid);
 	}
 
@@ -1987,7 +1987,7 @@ repeat:
 
 	node_states_clear_node(node, &arg);
 	if (arg.status_change_nid >= 0) {
-		kswapd_stop(node);
+		kswapd_stop(node, NULL);
 		kcompactd_stop(node);
 	}
 

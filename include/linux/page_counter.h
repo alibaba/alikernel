@@ -26,6 +26,9 @@ struct page_counter {
 #define PAGE_COUNTER_MAX (LONG_MAX / PAGE_SIZE)
 #endif
 
+#define CHARGE_WMARK_LOW       0x01
+#define CHARGE_WMARK_HIGH      0x02
+
 static inline void page_counter_init(struct page_counter *counter,
 				     struct page_counter *parent)
 {
@@ -51,11 +54,12 @@ int page_counter_limit(struct page_counter *counter, unsigned long limit);
 int page_counter_memparse(const char *buf, const char *max,
 			  unsigned long *nr_pages);
 
+
 static inline int
 page_counter_set_high_wmark_limit(struct page_counter *counter,
 		unsigned long long wmark_limit)
 {
-	counter->high_wmark_limit = wmark_limit;
+	xchg(&counter->high_wmark_limit, wmark_limit);
 	return 0;
 }
 
@@ -63,7 +67,7 @@ static inline int
 page_counter_set_low_wmark_limit(struct page_counter *counter,
 		unsigned long long wmark_limit)
 {
-	counter->low_wmark_limit = wmark_limit;
+	xchg(&counter->low_wmark_limit, wmark_limit);
 	return 0;
 }
 
@@ -72,5 +76,18 @@ static inline void page_counter_reset_watermark(struct page_counter *counter)
 {
 	counter->watermark = page_counter_read(counter);
 }
+
+static inline bool
+page_counter_check_under_low_wmark_limit(struct page_counter *counter)
+{
+	return (atomic_long_read(&counter->count) < counter->low_wmark_limit);
+}
+
+static inline bool
+page_counter_check_under_high_wmark_limit(struct page_counter *counter)
+{
+	return (atomic_long_read(&counter->count) < counter->high_wmark_limit);
+}
+
 
 #endif /* _LINUX_PAGE_COUNTER_H */

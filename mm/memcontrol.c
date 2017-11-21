@@ -281,9 +281,45 @@ static int get_wmark_ratio(struct mem_cgroup *memcg)
 	return atomic_read(&memcg->wmark_ratio);
 }
 
+static int get_low_wmark(struct mem_cgroup *memcg)
+{
+	struct page_counter *counter = &memcg->memory;
+
+	return counter->low_wmark_limit;
+}
+
+static int get_high_wmark(struct mem_cgroup *memcg)
+{
+	struct page_counter *counter = &memcg->memory;
+
+	return counter->high_wmark_limit;
+}
+
 static void set_wmark_ratio(struct mem_cgroup *memcg, int val)
 {
 	atomic_set(&memcg->wmark_ratio, val);
+}
+
+static inline void wake_memcg_kswapd(struct mem_cgroup *memcg)
+{
+	wait_queue_head_t *wait;
+
+	if (!memcg || !get_wmark_ratio(memcg))
+		return;
+	wait = memcg->kswapd_wait;
+	/*
+	 * if wait is NULL or wait_queue is empty, do nothing
+	 */
+	if (!wait || !waitqueue_active(wait))
+		return;
+
+	wake_up_interruptible(wait);
+}
+
+static void mem_cgroup_check_wmark(struct mem_cgroup *mem)
+{
+	if (!mem_cgroup_watermark_ok(mem, CHARGE_WMARK_LOW))
+		wake_memcg_kswapd(mem);
 }
 
 #ifndef CONFIG_SLOB
@@ -2522,6 +2558,7 @@ static int mem_cgroup_resize_limit(struct mem_cgroup *memcg,
 		if (limit > memcg->memory.limit)
 			enlarge = true;
 		ret = page_counter_limit(&memcg->memory, limit);
+		setup_per_memcg_wmarks(memcg);
 		mutex_unlock(&memcg_limit_mutex);
 
 		if (!ret)
@@ -2539,6 +2576,13 @@ static int mem_cgroup_resize_limit(struct mem_cgroup *memcg,
 
 	if (!ret && enlarge)
 		memcg_oom_recover(memcg);
+	if (!mem_cgroup_is_root(memcg) && !memcg->kswapd_wait
+			&& get_wmark_ratio(memcg)) {
+		mutex_lock(&memcg->kswapd_mutex);
+		if (!memcg->kswapd_wait)
+			kswapd_run(0, memcg);
+		mutex_unlock(&memcg->kswapd_mutex);
+	}
 
 	return ret;
 }
@@ -2573,6 +2617,7 @@ static int mem_cgroup_resize_memsw_limit(struct mem_cgroup *memcg,
 		if (limit > memcg->memsw.limit)
 			enlarge = true;
 		ret = page_counter_limit(&memcg->memsw, limit);
+		setup_per_memcg_wmarks(memcg);
 		mutex_unlock(&memcg_limit_mutex);
 
 		if (!ret)
@@ -3350,6 +3395,22 @@ static int mem_cgroup_wmark_ratio_write(struct cgroup_subsys_state *css,
 	return 0;
 }
 
+static u64 mem_cgroup_low_wmark_read(struct cgroup_subsys_state *css,
+					struct cftype *cft)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+
+	return get_low_wmark(memcg);
+}
+
+static u64 mem_cgroup_high_wmark_read(struct cgroup_subsys_state *css,
+					struct cftype *cft)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+
+	return get_high_wmark(memcg);
+}
+
 static void __mem_cgroup_threshold(struct mem_cgroup *memcg, bool swap)
 {
 	struct mem_cgroup_threshold_ary *t;
@@ -4059,6 +4120,14 @@ static struct cftype mem_cgroup_legacy_files[] = {
 		.write = mem_cgroup_force_empty_write,
 	},
 	{
+		.name = "low_wmark",
+		.read_u64 = mem_cgroup_low_wmark_read,
+	},
+	{
+		.name = "high_wmark",
+		.read_u64 = mem_cgroup_high_wmark_read,
+	},
+	{
 		.name = "use_hierarchy",
 		.write_u64 = mem_cgroup_hierarchy_write,
 		.read_u64 = mem_cgroup_hierarchy_read,
@@ -4319,6 +4388,47 @@ fail:
 	return NULL;
 }
 
+int mem_cgroup_watermark_ok(struct mem_cgroup *mem, int charge_flags)
+{
+	long ret = 0;
+	int flags = CHARGE_WMARK_LOW | CHARGE_WMARK_HIGH;
+
+	VM_BUG_ON((charge_flags & flags) == flags);
+
+	if (charge_flags & CHARGE_WMARK_LOW)
+		ret = page_counter_check_under_low_wmark_limit(&mem->memory);
+	if (charge_flags & CHARGE_WMARK_HIGH)
+		ret = page_counter_check_under_high_wmark_limit(&mem->memory);
+	return ret;
+}
+
+const char *mem_cgroup_init_kswapd(struct mem_cgroup *memcg,
+				struct kswapd *kswapd_p)
+{
+	static char memcg_name_buf[NAME_MAX + 1];
+	struct cgroup *c = memcg->css.cgroup;
+
+	cgroup_name(c, memcg_name_buf, NAME_MAX + 1);
+	memcg->kswapd_wait = &kswapd_p->kswapd_wait;
+	kswapd_p->kswapd_mem = memcg;
+	return memcg_name_buf;
+}
+
+void mem_cgroup_clear_kswapd(struct mem_cgroup *memcg)
+{
+	memcg->kswapd_wait = NULL;
+}
+
+wait_queue_head_t *mem_cgroup_kswapd_wait(struct mem_cgroup *memcg)
+{
+	return memcg->kswapd_wait;
+}
+
+int mem_cgroup_last_scanned_node(struct mem_cgroup *memcg)
+{
+	return memcg->last_scanned_node;
+}
+
 static struct cgroup_subsys_state * __ref
 mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 {
@@ -4336,6 +4446,7 @@ mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 		memcg->swappiness = mem_cgroup_swappiness(parent);
 		memcg->oom_kill_disable = parent->oom_kill_disable;
 		set_wmark_ratio(memcg, get_wmark_ratio(parent));
+		mutex_init(&memcg->kswapd_mutex);
 	}
 	if (parent && parent->use_hierarchy) {
 		memcg->use_hierarchy = true;
@@ -4392,6 +4503,7 @@ static void mem_cgroup_css_offline(struct cgroup_subsys_state *css)
 {
 	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
 	struct mem_cgroup_event *event, *tmp;
+	kswapd_stop(0, memcg);
 
 	/*
 	 * Unregister events and notify userspace.

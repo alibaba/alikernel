@@ -33,6 +33,13 @@ static inline int current_is_kswapd(void)
 	return current->flags & PF_KSWAPD;
 }
 
+struct kswapd {
+	struct task_struct      *kswapd_task;
+	wait_queue_head_t       kswapd_wait;
+	pg_data_t		*kswapd_pgdat;
+	struct mem_cgroup       *kswapd_mem;
+};
+
 /*
  * MAX_SWAPFILES defines the maximum number of swaptypes: things which can
  * be swapped to.  The swap type and the offset into that swap type are
@@ -348,8 +355,8 @@ static inline int node_reclaim(struct pglist_data *pgdat, gfp_t mask,
 extern int page_evictable(struct page *page);
 extern void check_move_unevictable_pages(struct page **, int nr_pages);
 
-extern int kswapd_run(int nid);
-extern void kswapd_stop(int nid);
+extern int kswapd_run(int nid, struct mem_cgroup *mem);
+extern void kswapd_stop(int nid, struct mem_cgroup *mem);
 
 #ifdef CONFIG_SWAP
 /* linux/mm/page_io.c */

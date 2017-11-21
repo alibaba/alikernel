@@ -34,6 +34,8 @@ struct mem_cgroup;
 struct page;
 struct mm_struct;
 struct kmem_cache;
+struct kswapd;
+
 
 /*
  * The corresponding mem_cgroup_stat_names is defined in mm/memcontrol.c,
@@ -250,6 +252,9 @@ struct mem_cgroup {
 	 * the memcg is removed
 	 */
 	atomic_t        force_empty_ctl;
+
+	struct mutex    kswapd_mutex;
+	wait_queue_head_t       *kswapd_wait;
 	unsigned long		socket_pressure;
 
 	/* Legacy tcp memory accounting */
@@ -316,6 +321,12 @@ void mem_cgroup_uncharge(struct page *page);
 void mem_cgroup_uncharge_list(struct list_head *page_list);
 
 void mem_cgroup_migrate(struct page *oldpage, struct page *newpage);
+extern int mem_cgroup_last_scanned_node(struct mem_cgroup *mem);
+extern int mem_cgroup_watermark_ok(struct mem_cgroup *mem, int charge_flags);
+const char *mem_cgroup_init_kswapd(struct mem_cgroup *mem,
+		struct kswapd *kswapd_p);
+void mem_cgroup_clear_kswapd(struct mem_cgroup *mem);
+wait_queue_head_t *mem_cgroup_kswapd_wait(struct mem_cgroup *mem);
 
 static struct mem_cgroup_per_node *
 mem_cgroup_nodeinfo(struct mem_cgroup *memcg, int nid)
@@ -541,6 +552,16 @@ static inline void mem_cgroup_dec_page_stat(struct page *page,
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 						gfp_t gfp_mask,
 						unsigned long *total_scanned);
+
+/* background reclaim stats */
+void mem_cgroup_kswapd_steal(struct mem_cgroup *memcg, int val);
+void mem_cgroup_pg_steal(struct mem_cgroup *memcg, int val);
+void mem_cgroup_kswapd_pgscan(struct mem_cgroup *memcg, int val);
+void mem_cgroup_pg_pgscan(struct mem_cgroup *memcg, int val);
+void mem_cgroup_pgrefill(struct mem_cgroup *memcg, int val);
+void mem_cgroup_pg_outrun(struct mem_cgroup *memcg, int val);
+void mem_cgroup_alloc_stall(struct mem_cgroup *memcg, int val);
+
 
 static inline void mem_cgroup_count_vm_event(struct mm_struct *mm,
 					     enum vm_event_item idx)
@@ -779,6 +800,55 @@ unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 
 static inline void mem_cgroup_split_huge_fixup(struct page *head)
 {
+}
+
+static inline bool mem_cgroup_zone_reclaimable(struct mem_cgroup *mem, int nid,
+						int zid)
+{
+	return false;
+}
+
+/* background reclaim stats */
+static inline void mem_cgroup_kswapd_steal(struct mem_cgroup *memcg,
+					  int val)
+{
+	return 0;
+}
+
+static inline void mem_cgroup_pg_steal(struct mem_cgroup *memcg,
+					int val)
+{
+	return 0;
+}
+
+static inline void mem_cgroup_kswapd_pgscan(struct mem_cgroup *memcg,
+					int val)
+{
+	return 0;
+}
+
+static inline void mem_cgroup_pg_pgscan(struct mem_cgroup *memcg,
+					int val)
+{
+	return 0;
+}
+
+static inline void mem_cgroup_pgrefill(struct mem_cgroup *memcg,
+					int val)
+{
+	return 0;
+}
+
+static inline void mem_cgroup_pg_outrun(struct mem_cgroup *memcg,
+					int val)
+{
+	return 0;
+}
+
+static inline void mem_cgroup_alloc_stall(struct mem_cgroup *memcg,
+					int val)
+{
+	return 0;
 }
 
 static inline
