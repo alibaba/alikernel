@@ -77,6 +77,7 @@ struct cgroup_subsys memory_cgrp_subsys __read_mostly;
 EXPORT_SYMBOL(memory_cgrp_subsys);
 
 struct mem_cgroup *root_mem_cgroup __read_mostly;
+static atomic_t vm_wmark_ratio = ATOMIC_INIT(0);
 
 #define MEM_CGROUP_RECLAIM_RETRIES	5
 
@@ -264,6 +265,25 @@ struct cgroup_subsys_state *vmpressure_to_css(struct vmpressure *vmpr)
 static inline bool mem_cgroup_is_root(struct mem_cgroup *memcg)
 {
 	return (memcg == root_mem_cgroup);
+}
+
+static int get_force_empty_ctl(struct mem_cgroup *memcg)
+{
+	return atomic_read(&memcg->force_empty_ctl);
+}
+
+static int get_wmark_ratio(struct mem_cgroup *memcg)
+{
+	struct cgroup_subsys_state *css = &memcg->css;
+
+	if (css->parent == NULL)
+		return atomic_read(&vm_wmark_ratio);
+	return atomic_read(&memcg->wmark_ratio);
+}
+
+static void set_wmark_ratio(struct mem_cgroup *memcg, int val)
+{
+	atomic_set(&memcg->wmark_ratio, val);
 }
 
 #ifndef CONFIG_SLOB
@@ -1233,6 +1253,33 @@ unsigned long mem_cgroup_get_limit(struct mem_cgroup *memcg)
 	}
 	return limit;
 }
+
+static void setup_per_memcg_wmarks(struct mem_cgroup *mem)
+{
+	u64 limit;
+	int wmark_ratio;
+
+	wmark_ratio = get_wmark_ratio(mem);
+	limit = mem_cgroup_get_limit(mem);
+	if (wmark_ratio == 0) {
+		page_counter_set_low_wmark_limit(&mem->memory, limit);
+		page_counter_set_high_wmark_limit(&mem->memory, limit);
+	} else {
+		u64 low_wmark, high_wmark;
+		u64 tmp;
+
+		if (limit > 10000)
+			tmp = limit / 100 * wmark_ratio;
+		else
+			tmp = wmark_ratio * limit / 100;
+
+		low_wmark = tmp;
+		high_wmark = tmp - (tmp >> 8);
+		page_counter_set_low_wmark_limit(&mem->memory, low_wmark);
+		page_counter_set_high_wmark_limit(&mem->memory, high_wmark);
+	}
+}
+
 
 static bool mem_cgroup_out_of_memory(struct mem_cgroup *memcg, gfp_t gfp_mask,
 				     int order)
@@ -3256,6 +3303,53 @@ static int mem_cgroup_swappiness_write(struct cgroup_subsys_state *css,
 	return 0;
 }
 
+static int mem_cgroup_emptyctl_write(struct cgroup_subsys_state *css,
+					struct cftype *cft, u64 val)
+{
+	int retval = 0;
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+
+	if (css->parent == NULL)
+		return -EINVAL;
+	if (val == 1 || val == 0)
+		atomic_set(&memcg->force_empty_ctl, val);
+	else
+		retval = -EINVAL;
+	return retval;
+
+}
+
+static u64 mem_cgroup_emptyctl_read(struct cgroup_subsys_state *css,
+					struct cftype *cft)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+
+	return get_force_empty_ctl(memcg);
+}
+
+static u64 mem_cgroup_wmark_ratio_read(struct cgroup_subsys_state *css,
+					struct cftype *cft)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+
+	return get_wmark_ratio(memcg);
+}
+
+static int mem_cgroup_wmark_ratio_write(struct cgroup_subsys_state *css,
+					struct cftype *cft, u64 val)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(css);
+
+	if (val > 100)
+		return -EINVAL;
+	if (css->parent)
+		set_wmark_ratio(memcg, val);
+	else
+		atomic_set(&vm_wmark_ratio, val);
+	setup_per_memcg_wmarks(memcg);
+	return 0;
+}
+
 static void __mem_cgroup_threshold(struct mem_cgroup *memcg, bool swap)
 {
 	struct mem_cgroup_threshold_ary *t;
@@ -3947,6 +4041,16 @@ static struct cftype mem_cgroup_legacy_files[] = {
 		.read_u64 = mem_cgroup_read_u64,
 	},
 	{
+		.name = "wmark_ratio",
+		.write_u64 = mem_cgroup_wmark_ratio_write,
+		.read_u64 = mem_cgroup_wmark_ratio_read,
+	},
+	{
+		.name = "force_empty_ctl",
+		.write_u64 = mem_cgroup_emptyctl_write,
+		.read_u64 = mem_cgroup_emptyctl_read,
+	},
+	{
 		.name = "stat",
 		.seq_show = memcg_stat_show,
 	},
@@ -4231,6 +4335,7 @@ mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 	if (parent) {
 		memcg->swappiness = mem_cgroup_swappiness(parent);
 		memcg->oom_kill_disable = parent->oom_kill_disable;
+		set_wmark_ratio(memcg, get_wmark_ratio(parent));
 	}
 	if (parent && parent->use_hierarchy) {
 		memcg->use_hierarchy = true;

@@ -13,6 +13,11 @@ struct page_counter {
 	/* legacy */
 	unsigned long watermark;
 	unsigned long failcnt;
+
+	/*the limit that triggers per memcg reclaim.*/
+	unsigned long long low_wmark_limit;
+	/*the limit that stops per memcg reclaim.*/
+	unsigned long long high_wmark_limit;
 };
 
 #if BITS_PER_LONG == 32
@@ -26,6 +31,8 @@ static inline void page_counter_init(struct page_counter *counter,
 {
 	atomic_long_set(&counter->count, 0);
 	counter->limit = PAGE_COUNTER_MAX;
+	counter->low_wmark_limit = PAGE_COUNTER_MAX;
+	counter->high_wmark_limit = PAGE_COUNTER_MAX;
 	counter->parent = parent;
 }
 
@@ -43,6 +50,23 @@ void page_counter_uncharge(struct page_counter *counter, unsigned long nr_pages)
 int page_counter_limit(struct page_counter *counter, unsigned long limit);
 int page_counter_memparse(const char *buf, const char *max,
 			  unsigned long *nr_pages);
+
+static inline int
+page_counter_set_high_wmark_limit(struct page_counter *counter,
+		unsigned long long wmark_limit)
+{
+	counter->high_wmark_limit = wmark_limit;
+	return 0;
+}
+
+static inline int
+page_counter_set_low_wmark_limit(struct page_counter *counter,
+		unsigned long long wmark_limit)
+{
+	counter->low_wmark_limit = wmark_limit;
+	return 0;
+}
+
 
 static inline void page_counter_reset_watermark(struct page_counter *counter)
 {

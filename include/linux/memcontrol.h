@@ -243,6 +243,13 @@ struct mem_cgroup {
 	 */
 	struct mem_cgroup_stat_cpu __percpu *stat;
 
+	/* ratio of low_watermark_limit to limit */
+	atomic_t        wmark_ratio;
+	/*
+	 * should we reclaim as many pages from the memcg as possible when
+	 * the memcg is removed
+	 */
+	atomic_t        force_empty_ctl;
 	unsigned long		socket_pressure;
 
 	/* Legacy tcp memory accounting */
