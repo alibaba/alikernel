@@ -115,6 +115,13 @@ static const char * const mem_cgroup_events_names[] = {
 	"pgpgout",
 	"pgfault",
 	"pgmajfault",
+	"kswapd_steal",
+	"pg_pgsteal",
+	"kswapd_pgscan",
+	"pg_pgscan",
+	"pgrefill",
+	"pgoutrun",
+	"allocstall",
 };
 
 static const char * const mem_cgroup_lru_names[] = {
@@ -128,6 +135,7 @@ static const char * const mem_cgroup_lru_names[] = {
 #define THRESHOLDS_EVENTS_TARGET 128
 #define SOFTLIMIT_EVENTS_TARGET 1024
 #define NUMAINFO_EVENTS_TARGET	1024
+#define WMARK_EVENTS_TARGET (1024)
 
 /*
  * Cgroups above their limits are maintained in a RB-Tree, independent of
@@ -303,6 +311,13 @@ static void set_wmark_ratio(struct mem_cgroup *memcg, int val)
 static inline void wake_memcg_kswapd(struct mem_cgroup *memcg)
 {
 	wait_queue_head_t *wait;
+	struct cgroup *c;
+	char name_buf[NAME_MAX + 1];
+
+	if (memcg) {
+		c = memcg->css.cgroup;
+		cgroup_name(c, name_buf, NAME_MAX + 1);
+	}
 
 	if (!memcg || !get_wmark_ratio(memcg))
 		return;
@@ -682,6 +697,41 @@ static void mem_cgroup_charge_statistics(struct mem_cgroup *memcg,
 	__this_cpu_add(memcg->stat->nr_page_events, nr_pages);
 }
 
+void mem_cgroup_kswapd_steal(struct mem_cgroup *mem, int val)
+{
+	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_KSWAPD_STEAL], val);
+}
+
+void mem_cgroup_pg_steal(struct mem_cgroup *mem, int val)
+{
+	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_PG_PGSTEAL], val);
+}
+
+void mem_cgroup_kswapd_pgscan(struct mem_cgroup *mem, int val)
+{
+	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_KSWAPD_PGSCAN], val);
+}
+
+void mem_cgroup_pg_pgscan(struct mem_cgroup *mem, int val)
+{
+	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_PG_PGSCAN], val);
+}
+
+void mem_cgroup_pgrefill(struct mem_cgroup *mem, int val)
+{
+	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_PGREFILL], val);
+}
+
+void mem_cgroup_pg_outrun(struct mem_cgroup *mem, int val)
+{
+	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_PGOUTRUN], val);
+}
+
+void mem_cgroup_alloc_stall(struct mem_cgroup *mem, int val)
+{
+	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_ALLOCSTALL], val);
+}
+
 unsigned long mem_cgroup_node_nr_lru_pages(struct mem_cgroup *memcg,
 					   int nid, unsigned int lru_mask)
 {
@@ -726,6 +776,9 @@ static bool mem_cgroup_event_ratelimit(struct mem_cgroup *memcg,
 		case MEM_CGROUP_TARGET_SOFTLIMIT:
 			next = val + SOFTLIMIT_EVENTS_TARGET;
 			break;
+		case MEM_CGROUP_WMARK_EVENTS_THRESH:
+			next = val + WMARK_EVENTS_TARGET;
+			break;
 		case MEM_CGROUP_TARGET_NUMAINFO:
 			next = val + NUMAINFO_EVENTS_TARGET;
 			break;
@@ -748,10 +801,13 @@ static void memcg_check_events(struct mem_cgroup *memcg, struct page *page)
 	if (unlikely(mem_cgroup_event_ratelimit(memcg,
 						MEM_CGROUP_TARGET_THRESH))) {
 		bool do_softlimit;
+		bool do_wmark;
 		bool do_numainfo __maybe_unused;
 
 		do_softlimit = mem_cgroup_event_ratelimit(memcg,
 						MEM_CGROUP_TARGET_SOFTLIMIT);
+		do_wmark =  mem_cgroup_event_ratelimit(memcg,
+						MEM_CGROUP_WMARK_EVENTS_THRESH);
 #if MAX_NUMNODES > 1
 		do_numainfo = mem_cgroup_event_ratelimit(memcg,
 						MEM_CGROUP_TARGET_NUMAINFO);
@@ -759,6 +815,8 @@ static void memcg_check_events(struct mem_cgroup *memcg, struct page *page)
 		mem_cgroup_threshold(memcg);
 		if (unlikely(do_softlimit))
 			mem_cgroup_update_tree(memcg, page);
+		if (unlikely(do_wmark))
+			mem_cgroup_check_wmark(memcg);
 #if MAX_NUMNODES > 1
 		if (unlikely(do_numainfo))
 			atomic_inc(&memcg->numainfo_events);
@@ -1122,7 +1180,7 @@ bool task_in_mem_cgroup(struct task_struct *task, struct mem_cgroup *memcg)
 	return ret;
 }
 
-/**
+/*
  * mem_cgroup_margin - calculate chargeable space of a memory cgroup
  * @memcg: the memory cgroup
  *
@@ -1296,7 +1354,7 @@ static void setup_per_memcg_wmarks(struct mem_cgroup *mem)
 	int wmark_ratio;
 
 	wmark_ratio = get_wmark_ratio(mem);
-	limit = mem_cgroup_get_limit(mem);
+	limit = mem_cgroup_get_limit(mem) * PAGE_SIZE;
 	if (wmark_ratio == 0) {
 		page_counter_set_low_wmark_limit(&mem->memory, limit);
 		page_counter_set_high_wmark_limit(&mem->memory, limit);
@@ -4521,6 +4579,8 @@ static void mem_cgroup_css_offline(struct cgroup_subsys_state *css)
 	wb_memcg_offline(memcg);
 
 	mem_cgroup_id_put(memcg);
+	if (get_force_empty_ctl(memcg))
+		mem_cgroup_force_empty(memcg);
 }
 
 static void mem_cgroup_css_released(struct cgroup_subsys_state *css)

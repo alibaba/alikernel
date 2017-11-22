@@ -72,6 +72,13 @@ enum mem_cgroup_events_index {
 	MEM_CGROUP_EVENTS_PGPGOUT,	/* # of pages paged out */
 	MEM_CGROUP_EVENTS_PGFAULT,	/* # of page-faults */
 	MEM_CGROUP_EVENTS_PGMAJFAULT,	/* # of major page-faults */
+	MEM_CGROUP_EVENTS_KSWAPD_STEAL, /* # of pages reclaimed from kswapd */
+	MEM_CGROUP_EVENTS_PG_PGSTEAL, /* # of pages reclaimed from ttfp */
+	MEM_CGROUP_EVENTS_KSWAPD_PGSCAN, /* # of pages scanned from kswapd */
+	MEM_CGROUP_EVENTS_PG_PGSCAN, /* # of pages scanned from ttfp */
+	MEM_CGROUP_EVENTS_PGREFILL, /* # of pages scanned on active list */
+	MEM_CGROUP_EVENTS_PGOUTRUN, /* # of triggers of background reclaim */
+	MEM_CGROUP_EVENTS_ALLOCSTALL, /* # of triggers of direct reclaim */
 	MEM_CGROUP_EVENTS_NSTATS,
 	/* default hierarchy events */
 	MEMCG_LOW = MEM_CGROUP_EVENTS_NSTATS,
@@ -90,6 +97,7 @@ enum mem_cgroup_events_index {
 enum mem_cgroup_events_target {
 	MEM_CGROUP_TARGET_THRESH,
 	MEM_CGROUP_TARGET_SOFTLIMIT,
+	MEM_CGROUP_WMARK_EVENTS_THRESH,
 	MEM_CGROUP_TARGET_NUMAINFO,
 	MEM_CGROUP_NTARGETS,
 };
@@ -802,11 +810,6 @@ static inline void mem_cgroup_split_huge_fixup(struct page *head)
 {
 }
 
-static inline bool mem_cgroup_zone_reclaimable(struct mem_cgroup *mem, int nid,
-						int zid)
-{
-	return false;
-}
 
 /* background reclaim stats */
 static inline void mem_cgroup_kswapd_steal(struct mem_cgroup *memcg,

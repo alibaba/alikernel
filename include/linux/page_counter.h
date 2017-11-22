@@ -80,13 +80,15 @@ static inline void page_counter_reset_watermark(struct page_counter *counter)
 static inline bool
 page_counter_check_under_low_wmark_limit(struct page_counter *counter)
 {
-	return (atomic_long_read(&counter->count) < counter->low_wmark_limit);
+	return (atomic_long_read(&counter->count) * PAGE_SIZE
+						 < counter->low_wmark_limit);
 }
 
 static inline bool
 page_counter_check_under_high_wmark_limit(struct page_counter *counter)
 {
-	return (atomic_long_read(&counter->count) < counter->high_wmark_limit);
+	return (atomic_long_read(&counter->count) * PAGE_SIZE
+						< counter->high_wmark_limit);
 }
 
 

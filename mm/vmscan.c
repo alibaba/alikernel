@@ -1752,11 +1752,21 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 
 	spin_lock_irq(&pgdat->lru_lock);
 
+
+
 	nr_taken = isolate_lru_pages(nr_to_scan, lruvec, &page_list,
 				     &nr_scanned, sc, isolate_mode, lru);
 
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, nr_taken);
 	reclaim_stat->recent_scanned[file] += nr_taken;
+
+	if (sc->target_mem_cgroup) {
+		if (current_is_kswapd())
+			mem_cgroup_kswapd_pgscan(sc->target_mem_cgroup,
+				nr_scanned);
+		else
+			mem_cgroup_pg_pgscan(sc->target_mem_cgroup, nr_scanned);
+	}
 
 	if (global_reclaim(sc)) {
 		__mod_node_page_state(pgdat, NR_PAGES_SCANNED, nr_scanned);
@@ -1782,6 +1792,13 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 			__count_vm_events(PGSTEAL_KSWAPD, nr_reclaimed);
 		else
 			__count_vm_events(PGSTEAL_DIRECT, nr_reclaimed);
+	} else {
+		if (current_is_kswapd())
+			mem_cgroup_kswapd_steal(sc->target_mem_cgroup,
+				nr_reclaimed);
+		else
+			mem_cgroup_pg_steal(sc->target_mem_cgroup,
+				nr_reclaimed);
 	}
 
 	putback_inactive_pages(lruvec, &page_list);
@@ -1944,13 +1961,15 @@ static void shrink_active_list(unsigned long nr_to_scan,
 
 	nr_taken = isolate_lru_pages(nr_to_scan, lruvec, &l_hold,
 				     &nr_scanned, sc, isolate_mode, lru);
-
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, nr_taken);
 	reclaim_stat->recent_scanned[file] += nr_taken;
 
 	if (global_reclaim(sc))
 		__mod_node_page_state(pgdat, NR_PAGES_SCANNED, nr_scanned);
 	__count_vm_events(PGREFILL, nr_scanned);
+
+	if (sc->target_mem_cgroup)
+		mem_cgroup_pgrefill(sc->target_mem_cgroup, nr_scanned);
 
 	spin_unlock_irq(&pgdat->lru_lock);
 
@@ -2360,7 +2379,6 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 			if (nr[lru]) {
 				nr_to_scan = min(nr[lru], SWAP_CLUSTER_MAX);
 				nr[lru] -= nr_to_scan;
-
 				nr_reclaimed += shrink_list(lru, nr_to_scan,
 							    lruvec, sc);
 			}
@@ -2550,7 +2568,6 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 
 			reclaimed = sc->nr_reclaimed;
 			scanned = sc->nr_scanned;
-
 			shrink_node_memcg(pgdat, memcg, sc, &lru_pages);
 			node_lru_pages += lru_pages;
 
@@ -2770,6 +2787,8 @@ retry:
 
 	if (global_reclaim(sc))
 		__count_zid_vm_events(ALLOCSTALL, sc->reclaim_idx, 1);
+	else
+		mem_cgroup_alloc_stall(sc->target_mem_cgroup, 1);
 
 	do {
 		vmpressure_prio(sc->gfp_mask, sc->target_mem_cgroup,
@@ -3364,34 +3383,40 @@ static void kswapd_try_to_sleep(struct kswapd *kswapd_p, int alloc_order,
 	prepare_to_wait(wait_h, &wait, TASK_INTERRUPTIBLE);
 	/* Try to sleep for a short interval */
 	if (prepare_kswapd_sleep(kswapd_p, reclaim_order, classzone_idx)) {
+		if (is_node_kswapd(kswapd_p)) {
 		/*
 		 * Compaction records what page blocks it recently failed to
 		 * isolate pages from and skips them in the future scanning.
 		 * When kswapd is going to sleep, it is reasonable to assume
 		 * that pages and compaction may succeed so reset the cache.
 		 */
-		reset_isolation_suitable(pgdat);
+			reset_isolation_suitable(pgdat);
 
 		/*
 		 * We have freed the memory, now we should compact it to make
 		 * allocation of the requested order possible.
 		 */
-		wakeup_kcompactd(pgdat, alloc_order, classzone_idx);
+			wakeup_kcompactd(pgdat, alloc_order, classzone_idx);
 
-		remaining = schedule_timeout(HZ/10);
+			remaining = schedule_timeout(HZ/10);
 
 		/*
 		 * If woken prematurely then reset kswapd_classzone_idx and
 		 * order. The values will either be from a wakeup request or
 		 * the previous request that slept prematurely.
 		 */
-		if (remaining) {
-			pgdat->kswapd_classzone_idx = max(pgdat->kswapd_classzone_idx, classzone_idx);
-			pgdat->kswapd_order = max(pgdat->kswapd_order, reclaim_order);
-		}
+			if (remaining) {
+				pgdat->kswapd_classzone_idx =
+					max(pgdat->kswapd_classzone_idx,
+								classzone_idx);
+				pgdat->kswapd_order =
+					max(pgdat->kswapd_order,
+								reclaim_order);
+			}
 
-		finish_wait(wait_h, &wait);
-		prepare_to_wait(wait_h, &wait, TASK_INTERRUPTIBLE);
+			finish_wait(wait_h, &wait);
+			prepare_to_wait(wait_h, &wait, TASK_INTERRUPTIBLE);
+		}
 	}
 
 	/*
@@ -3432,12 +3457,117 @@ static void kswapd_try_to_sleep(struct kswapd *kswapd_p, int alloc_order,
 	finish_wait(wait_h, &wait);
 }
 
+#ifdef CONFIG_MEMCG
+/*
+ * Per cgroup background reclaim.
+ * TODO: Take off the order since memcg always do order 0
+ */
+
+
+static unsigned long balance_mem_cgroup_pgdat(struct mem_cgroup *mem_cont,
+						int order)
+{
+	int  nid;
+	int start_node;
+	int priority;
+	bool wmark_ok;
+	int loop;
+	unsigned long total_scanned;
+	pg_data_t *pgdat;
+	struct scan_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.order = order,
+		.may_unmap = 1,
+		.may_swap = 1,
+		.may_writepage = !laptop_mode,
+		.nr_to_reclaim = ULONG_MAX,
+		.reclaim_idx = MAX_NR_ZONES - 1,
+		.target_mem_cgroup = mem_cont,
+		.priority = DEF_PRIORITY,
+	};
+
+loop_again:
+	mem_cgroup_pg_outrun(mem_cont, 1);
+	total_scanned = 0;
+	start_node = 0;
+
+	do {
+		bool raise_priority = true;
+
+		priority = sc.priority;
+		wmark_ok = false;
+		loop = 0;
+		while (1) {
+			nid = mem_cgroup_select_victim_node(mem_cont);
+			if (loop == 0) {
+				start_node = nid;
+				loop++;
+			} else if (nid == start_node)
+				break;
+
+			pgdat = NODE_DATA(nid);
+			/*
+			 * Do some background aging of the anon list, to give
+			 * pages a chance to be referenced before reclaiming.
+			 * All pages are rotated regardless of classzone as
+			 * this is about consistent aging.
+			 */
+			age_active_anon(pgdat, &sc);
+			/*
+			 * If we're getting trouble reclaiming, start
+			 * doing writepage  even in laptop mode.
+			 */
+			if (sc.priority < DEF_PRIORITY - 2)
+				sc.may_writepage = 1;
+
+			if (kswapd_shrink_node(pgdat, &sc))
+				raise_priority = false;
+			total_scanned += sc.nr_scanned;
+			if (mem_cgroup_watermark_ok(mem_cont,
+						CHARGE_WMARK_HIGH)) {
+				wmark_ok = true;
+				goto out;
+			}
+		}
+		if (total_scanned && priority < DEF_PRIORITY - 2)
+			congestion_wait(WRITE, HZ/10);
+		/* Check if kswapd should be suspending */
+		if (try_to_freeze() || kthread_should_stop())
+			break;
+
+		if (sc.nr_reclaimed >= SWAP_CLUSTER_MAX)
+			break;
+		/*
+		 *  Raise priority if scanning rate is too low or there was no
+		 *  progress in reclaiming pages
+		 */
+		if (raise_priority || !sc.nr_reclaimed)
+			sc.priority--;
+
+	} while (sc.priority >= 1);
+
+out:
+	if (!wmark_ok) {
+		cond_resched();
+
+		try_to_freeze();
+
+		goto loop_again;
+	}
+
+	return sc.nr_reclaimed;
+
+}
+
+#else
+
 static unsigned long balance_mem_cgroup_pgdat(struct mem_cgroup *mem_cont,
 						int order)
 {
 	return 0;
 
 }
+#endif
 
 /*
  * The background pageout daemon, started as a kernel thread
@@ -3492,9 +3622,10 @@ static int kswapd(void *p)
 	 */
 	tsk->flags |= PF_MEMALLOC | PF_SWAPWRITE | PF_KSWAPD;
 	set_freezable();
-
-	pgdat->kswapd_order = alloc_order = reclaim_order = 0;
-	pgdat->kswapd_classzone_idx = classzone_idx = 0;
+	if (is_node_kswapd(kswapd_p)) {
+		pgdat->kswapd_order = alloc_order = reclaim_order = 0;
+		pgdat->kswapd_classzone_idx = classzone_idx = 0;
+	}
 	for ( ; ; ) {
 		bool ret;
 
@@ -3544,7 +3675,7 @@ kswapd_try_sleep:
 			alloc_order = reclaim_order = pgdat->kswapd_order;
 			classzone_idx = pgdat->kswapd_classzone_idx;
 		} else {
-			balance_mem_cgroup_pgdat(mem, alloc_order);
+			balance_mem_cgroup_pgdat(mem, 0);
 		}
 	}
 
