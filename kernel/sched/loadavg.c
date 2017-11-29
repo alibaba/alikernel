@@ -61,6 +61,9 @@
 atomic_long_t calc_load_tasks;
 unsigned long calc_load_update;
 unsigned long avenrun[3];
+/* R state tracking */
+atomic_long_t calc_load_tasks_r;
+unsigned long avenrun_r[3];
 EXPORT_SYMBOL(avenrun); /* should be removed */
 
 /**
@@ -78,6 +81,13 @@ void get_avenrun(unsigned long *loads, unsigned long offset, int shift)
 	loads[2] = (avenrun[2] + offset) << shift;
 }
 
+void get_avenrun_r(unsigned long *loads, unsigned long offset, int shift)
+{
+	loads[0] = (avenrun_r[0] + offset) << shift;
+	loads[1] = (avenrun_r[1] + offset) << shift;
+	loads[2] = (avenrun_r[2] + offset) << shift;
+}
+
 long calc_load_fold_active(struct rq *this_rq, long adjust)
 {
 	long nr_active, delta = 0;
@@ -88,6 +98,20 @@ long calc_load_fold_active(struct rq *this_rq, long adjust)
 	if (nr_active != this_rq->calc_load_active) {
 		delta = nr_active - this_rq->calc_load_active;
 		this_rq->calc_load_active = nr_active;
+	}
+
+	return delta;
+}
+
+long calc_load_fold_active_r(struct rq *this_rq, long adjust)
+{
+	long nr_active, delta = 0;
+
+	nr_active = this_rq->nr_running - adjust;
+
+	if (nr_active != this_rq->calc_load_active_r) {
+		delta = nr_active - this_rq->calc_load_active_r;
+		this_rq->calc_load_active_r = nr_active;
 	}
 
 	return delta;
@@ -152,6 +176,7 @@ calc_load(unsigned long load, unsigned long exp, unsigned long active)
  * When making the ILB scale, we should try to pull this in as well.
  */
 static atomic_long_t calc_load_idle[2];
+static atomic_long_t calc_load_idle_r[2];
 static int calc_load_idx;
 
 static inline int calc_load_write_idx(void)
@@ -183,17 +208,19 @@ void calc_load_enter_idle(void)
 {
 	struct rq *this_rq = this_rq();
 	long delta;
+	int idx = calc_load_write_idx();
 
 	/*
 	 * We're going into NOHZ mode, if there's any pending delta, fold it
 	 * into the pending idle delta.
 	 */
 	delta = calc_load_fold_active(this_rq, 0);
-	if (delta) {
-		int idx = calc_load_write_idx();
-
+	if (delta)
 		atomic_long_add(delta, &calc_load_idle[idx]);
-	}
+
+	delta = calc_load_fold_active_r(this_rq, 0);
+	if (delta)
+		atomic_long_add(delta, &calc_load_idle_r[idx]);
 }
 
 void calc_load_exit_idle(void)
@@ -223,6 +250,17 @@ static long calc_load_fold_idle(void)
 
 	if (atomic_long_read(&calc_load_idle[idx]))
 		delta = atomic_long_xchg(&calc_load_idle[idx], 0);
+
+	return delta;
+}
+
+static long calc_load_fold_idle_r(void)
+{
+	int idx = calc_load_read_idx();
+	long delta = 0;
+
+	if (atomic_long_read(&calc_load_idle_r[idx]))
+		delta = atomic_long_xchg(&calc_load_idle_r[idx], 0);
 
 	return delta;
 }
@@ -323,6 +361,14 @@ static void calc_global_nohz(void)
 		avenrun[1] = calc_load_n(avenrun[1], EXP_5, active, n);
 		avenrun[2] = calc_load_n(avenrun[2], EXP_15, active, n);
 
+		/* Calc avenrun_r */
+		active = atomic_long_read(&calc_load_tasks_r);
+		active = active > 0 ? active * FIXED_1 : 0;
+
+		avenrun_r[0] = calc_load_n(avenrun_r[0], EXP_1, active, n);
+		avenrun_r[1] = calc_load_n(avenrun_r[1], EXP_5, active, n);
+		avenrun_r[2] = calc_load_n(avenrun_r[2], EXP_15, active, n);
+
 		calc_load_update += n * LOAD_FREQ;
 	}
 
@@ -339,6 +385,7 @@ static void calc_global_nohz(void)
 #else /* !CONFIG_NO_HZ_COMMON */
 
 static inline long calc_load_fold_idle(void) { return 0; }
+static inline long calc_load_fold_idle_r(void) { return 0; }
 static inline void calc_global_nohz(void) { }
 
 #endif /* CONFIG_NO_HZ_COMMON */
@@ -370,6 +417,21 @@ void calc_global_load(unsigned long ticks)
 	avenrun[1] = calc_load(avenrun[1], EXP_5, active);
 	avenrun[2] = calc_load(avenrun[2], EXP_15, active);
 
+	/*
+	 * Calculate load 1/5/15 for running tasks only. We do not
+	 * invent common functions to keep the same layout as upstream.
+	 */
+	delta = calc_load_fold_idle_r();
+	if (delta)
+		atomic_long_add(delta, &calc_load_tasks_r);
+
+	active = atomic_long_read(&calc_load_tasks_r);
+	active = active > 0 ? active * FIXED_1 : 0;
+
+	avenrun_r[0] = calc_load(avenrun_r[0], EXP_1, active);
+	avenrun_r[1] = calc_load(avenrun_r[1], EXP_5, active);
+	avenrun_r[2] = calc_load(avenrun_r[2], EXP_15, active);
+
 	calc_load_update += LOAD_FREQ;
 #ifdef CONFIG_CGROUP_CPUACCT
 	cpuacct_cgroup_walk_tree(NULL);
@@ -394,6 +456,10 @@ void calc_global_load_tick(struct rq *this_rq)
 	delta  = calc_load_fold_active(this_rq, 0);
 	if (delta)
 		atomic_long_add(delta, &calc_load_tasks);
+
+	delta = calc_load_fold_active_r(this_rq, 0);
+	if (delta)
+		atomic_long_add(delta, &calc_load_tasks_r);
 
 	this_rq->calc_load_update += LOAD_FREQ;
 }

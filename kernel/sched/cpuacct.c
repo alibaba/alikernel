@@ -45,6 +45,7 @@ struct cpuacct {
 	unsigned long *nr_uninterruptible;
 	unsigned long *nr_running;
 	unsigned long avenrun[3];
+	unsigned long avenrun_r[3];
 	u64 *nr_switches;
 
 	ALI_HOTFIX_RESERVE(1)
@@ -95,8 +96,15 @@ static struct cpuacct root_cpuacct = {
 };
 
 void get_cgroup_avenrun(struct cpuacct *ca, unsigned long *loads,
-			unsigned long offset, int shift)
+		unsigned long offset, int shift, bool running)
 {
+	unsigned long *avenrun;
+
+	if (running)
+		avenrun = ca->avenrun_r;
+	else
+		avenrun = ca->avenrun;
+
 	loads[0] = (ca->avenrun[0] + offset) << shift;
 	loads[1] = (ca->avenrun[1] + offset) << shift;
 	loads[2] = (ca->avenrun[2] + offset) << shift;
@@ -107,7 +115,7 @@ void get_avenrun_from_tsk(struct task_struct *tsk, unsigned long *loads,
 {
 	struct cpuacct *ca = task_ca(tsk);
 
-	get_cgroup_avenrun(ca, loads, offset, shift);
+	get_cgroup_avenrun(ca, loads, offset, shift, false);
 }
 
 
@@ -219,6 +227,7 @@ cpuacct_css_alloc(struct cgroup_subsys_state *parent_css)
 	}
 
 	ca->avenrun[0] = ca->avenrun[1] = ca->avenrun[2] = 0;
+	ca->avenrun_r[0] = ca->avenrun_r[1] = ca->avenrun_r[2] = 0;
 	return &ca->css;
 
 out_free_running:
@@ -607,7 +616,7 @@ static int cpuacct_stats_show(struct seq_file *sf, void *v)
 	return 0;
 }
 
-static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
+static int __cpuacct_stats_proc_show(struct seq_file *sf, void *v, bool extra)
 {
 	struct cpuacct *ca = css_ca(seq_css(sf));
 	struct cgroup *cgrp;
@@ -616,7 +625,7 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 	int cpu, i;
 	struct kernel_cpustat *kcpustat;
 	struct cpumask cpus_allowed;
-	unsigned long avnrun[3];
+	unsigned long avnrun[3], avnrun_r[3];
 	unsigned long nr_run = 0, nr_uninter = 0, *nrptr = NULL;
 
 	cgrp = seq_css(sf)->cgroup;
@@ -675,13 +684,17 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 			nrptr = per_cpu_ptr(ca->nr_uninterruptible, i);
 			nr_uninter += *nrptr;
 		}
-		get_cgroup_avenrun(ca, avnrun, FIXED_1/200, 0);
+		get_cgroup_avenrun(ca, avnrun, FIXED_1/200, 0, false);
+		if (extra)
+			get_cgroup_avenrun(ca, avnrun_r, FIXED_1/200, 0, true);
 	} else {
 		for_each_possible_cpu(i)
 			nr_switches += cpu_rq(i)->nr_switches;
 		nr_run = nr_running();
 		nr_uninter = nr_uninterruptible();
 		get_avenrun(avnrun, FIXED_1/200, 0);
+		if (extra)
+			get_avenrun_r(avnrun_r, FIXED_1/200, 0);
 	}
 
 	seq_printf(sf, "user %lld\n", cputime64_to_clock_t(user));
@@ -703,7 +716,26 @@ static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
 	seq_printf(sf, "nr_uninterrupible %lld\n", (u64)nr_uninter);
 	seq_printf(sf, "nr_switches %lld\n", (u64)nr_switches);
 
+	if (extra) {
+		load = LOAD_INT(avnrun_r[0]) * 100 + LOAD_FRAC(avnrun_r[0]);
+		seq_printf(sf, "running load average(1min) %lld\n", load);
+		load = LOAD_INT(avnrun_r[1]) * 100 + LOAD_FRAC(avnrun_r[1]);
+		seq_printf(sf, "running load average(5min) %lld\n", load);
+		load = LOAD_INT(avnrun_r[2]) * 100 + LOAD_FRAC(avnrun_r[2]);
+		seq_printf(sf, "running load average(15min) %lld\n", load);
+	}
+
 	return 0;
+}
+
+static int cpuacct_stats_proc_show(struct seq_file *sf, void *v)
+{
+	return __cpuacct_stats_proc_show(sf, v, false);
+}
+
+static int cpuacct_stats_v2_proc_show(struct seq_file *sf, void *v)
+{
+	return __cpuacct_stats_proc_show(sf, v, true);
 }
 
 static struct cftype files[] = {
@@ -743,6 +775,10 @@ static struct cftype files[] = {
 	{
 		.name = "proc_stat",
 		.seq_show = cpuacct_stats_proc_show,
+	},
+	{
+		.name = "proc_stat_v2",
+		.seq_show = cpuacct_stats_v2_proc_show,
 	},
 	{ }	/* terminate */
 };
@@ -799,7 +835,7 @@ extern  unsigned long calc_load(unsigned long load, unsigned long exp, unsigned 
 
 static int cpuacct_cgroup_calc_load(struct cpuacct *acct, void *data)
 {
-	long active = 0;
+	long active = 0, active_r = 0;
 	struct cgroup *cgrp = acct->css.cgroup;
 	int cpu;
 	unsigned long *nrptr;
@@ -811,15 +847,25 @@ static int cpuacct_cgroup_calc_load(struct cpuacct *acct, void *data)
 			active += *nrptr;
 			nrptr = per_cpu_ptr(acct->nr_running, cpu);
 			active += *nrptr;
+			active_r += *nrptr;
 		}
 		active = active > 0 ? active * FIXED_1 : 0;
 		acct->avenrun[0] = calc_load(acct->avenrun[0], EXP_1, active);
 		acct->avenrun[1] = calc_load(acct->avenrun[1], EXP_5, active);
 		acct->avenrun[2] = calc_load(acct->avenrun[2], EXP_15, active);
+
+		active_r = active_r > 0 ? active_r * FIXED_1 : 0;
+		acct->avenrun_r[0] = calc_load(acct->avenrun_r[0], EXP_1, active_r);
+		acct->avenrun_r[1] = calc_load(acct->avenrun_r[1], EXP_5, active_r);
+		acct->avenrun_r[2] = calc_load(acct->avenrun_r[2], EXP_15, active_r);
 	} else {
 		acct->avenrun[0] = avenrun[0];
 		acct->avenrun[1] = avenrun[1];
 		acct->avenrun[2] = avenrun[2];
+
+		acct->avenrun_r[0] = avenrun_r[0];
+		acct->avenrun_r[1] = avenrun_r[1];
+		acct->avenrun_r[2] = avenrun_r[2];
 	}
 
 	return 0;
