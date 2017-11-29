@@ -213,7 +213,7 @@ cpuacct_css_alloc(struct cgroup_subsys_state *parent_css)
 			+ kcpustat_cpu(i).cpustat[CPUTIME_GUEST];
 	}
 
-	avenrun[0] = avenrun[1] = avenrun[2] = 0;
+	ca->avenrun[0] = ca->avenrun[1] = ca->avenrun[2] = 0;
 	return &ca->css;
 
 out_free_running:
