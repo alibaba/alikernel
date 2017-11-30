@@ -48,6 +48,26 @@ config EARLY_PRINTK_EFI
 	  This is useful for kernel debugging when your machine crashes very
 	  early before the console code is initialized.
 
+config PRINTK_RATELIMIT_ALL
+	bool "Ratelimited in printk"
+	default y
+	---help---
+		Printk storm because of the user's reasons,
+		together with the serial port slow, often trigger softlockup
+
+		Ratelimited all users within printk
+		This is useful for user crazy printk scenes.
+
+config PRINTK_CONSOLE_RELAXED
+	bool "Release pressure for console printing"
+	default y
+	---help---
+		Printk storm because of the user's reasons,
+		together with the serial port slow, often trigger softlockup
+
+		Switch between netconsole and serial, set a break in console printing.
+		Can alleviate this scenario
+
 config X86_PTDUMP_CORE
 	def_bool n
 

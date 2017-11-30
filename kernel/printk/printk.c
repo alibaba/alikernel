@@ -45,6 +45,11 @@
 #include <linux/utsname.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
+#if defined(CONFIG_PRINTK_RATELIMIT_ALL) \
+	|| defined(CONFIG_PRINTK_CONSOLE_RELAXED)
+#include <linux/atomic.h>
+#include <linux/proc_fs.h>
+#endif
 
 #include <asm/uaccess.h>
 #include <asm/sections.h>
@@ -69,6 +74,9 @@ int console_printk[4] = {
  */
 int oops_in_progress;
 EXPORT_SYMBOL(oops_in_progress);
+
+int emergency_in_progress;
+EXPORT_SYMBOL(emergency_in_progress);
 
 /*
  * console_sem protects the console_drivers list, and also
@@ -1553,6 +1561,368 @@ SYSCALL_DEFINE3(syslog, int, type, char __user *, buf, int, len)
 	return do_syslog(type, buf, len, SYSLOG_FROM_READER);
 }
 
+/* printk ratelimited all */
+#ifdef CONFIG_PRINTK_RATELIMIT_ALL
+struct pk_rtall {
+	unsigned long ip;
+	int *this_sp;
+	struct ratelimit_state rs;
+};
+
+#define IGNORE_LEN_MAX 10
+#define IGNORE_ENTRY(startval, sizeval, namestr)\
+{\
+	.start = startval,\
+	.size  =  sizeval,\
+	.name  =  namestr,\
+}
+/* per CPU ptr */
+static struct pk_rtall __percpu *pkrtall_pcpu_ptr;
+struct {
+	unsigned long start;
+	unsigned long size;
+	char name[128];
+} ignore_symbols[IGNORE_LEN_MAX] = {
+	IGNORE_ENTRY(0, 0, "print_trace_stack"),
+	IGNORE_ENTRY(0, 0, "print_trace_address"),
+};
+
+static inline int within(unsigned long addr,
+		unsigned long start, unsigned long size)
+{
+	return ((addr >= start) && (addr < start + size));
+}
+
+atomic_t printk_ratelimited_all_state = ATOMIC_INIT(PK_RATELIMITED_ALL_UINIT);
+
+static int proc_printk_ratelimited_all_show(struct seq_file *m, void *v)
+{
+	if (atomic_read(&printk_ratelimited_all_state)
+			== PK_RATELIMITED_ALL_ON)
+		seq_printf(m, "%s\n", "on");
+
+	if (atomic_read(&printk_ratelimited_all_state)
+			== PK_RATELIMITED_ALL_OFF)
+		seq_printf(m, "%s\n", "off");
+	return 0;
+}
+
+static int proc_printk_ratelimited_all_open(struct inode *inode,
+		struct file *file)
+{
+	return single_open(file, proc_printk_ratelimited_all_show, NULL);
+}
+
+ssize_t proc_printk_ratelimited_all_write(struct file *filp,
+		const char __user *ubuf, size_t usize, loff_t *off)
+{
+	char buf[4] = {0};
+	ssize_t len;
+
+	len = min(usize, sizeof(buf) - 1);
+	if (copy_from_user(buf, ubuf, len))
+		return -EFAULT;
+
+	buf[len] = '\0';
+
+	if (!strncmp(buf, "on", 2))
+		atomic_set(&printk_ratelimited_all_state,
+				PK_RATELIMITED_ALL_ON);
+	else if (!strncmp(buf, "off", 3))
+		atomic_set(&printk_ratelimited_all_state,
+				PK_RATELIMITED_ALL_OFF);
+	else if (len > 1)
+		pr_info("Only support on/off\n");
+
+	return len;
+}
+
+
+static const struct file_operations printk_ratelimited_all_fops = {
+	.owner		= THIS_MODULE,
+	.open		= proc_printk_ratelimited_all_open,
+	.read		= seq_read,
+	.write		= proc_printk_ratelimited_all_write,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+/* printk console break */
+#define LOG_LINE_MIN		(256)
+#define PK_CONSOLE_BREAK_ON (1)
+#define PK_CONSOLE_BREAK_OFF (0)
+atomic_t printk_console_break_state = ATOMIC_INIT(PK_CONSOLE_BREAK_ON);
+unsigned int printk_console_break_len = LOG_LINE_MAX + PREFIX_MAX;
+static int proc_printk_console_break_show(struct seq_file *m, void *v)
+{
+	if ((atomic_read(&printk_console_break_state)
+		== PK_CONSOLE_BREAK_ON) ||
+		(atomic_read(&printk_console_break_state)
+		 == PK_CONSOLE_BREAK_OFF))
+		seq_printf(m, "%s\n",
+		atomic_read(&printk_console_break_state) ? "on":"off");
+
+	seq_printf(m, "length to break: %d\n", printk_console_break_len);
+
+	return 0;
+}
+
+static int proc_printk_console_break_open(struct inode *inode,
+		struct file *file)
+{
+	return single_open(file, proc_printk_console_break_show, NULL);
+}
+
+ssize_t proc_printk_console_break_write(struct file *filp,
+		const char __user *ubuf,
+		 size_t usize, loff_t *off)
+{
+	char buf[30] = {0};
+	ssize_t len;
+	int val;
+
+	len = min(usize, sizeof(buf) - 1);
+	if (copy_from_user(buf, ubuf, len))
+		return -EFAULT;
+
+	buf[len] = '\0';
+
+	if (!strncmp(buf, "on", 2)) {
+		atomic_set(&printk_console_break_state, PK_CONSOLE_BREAK_ON);
+		goto out;
+	}
+
+	if (!strncmp(buf, "off", 3)) {
+		atomic_set(&printk_console_break_state, PK_CONSOLE_BREAK_OFF);
+		goto out;
+	}
+
+	if (kstrtouint(buf, 10, &val))
+		return -EINVAL;
+
+	if (val <= 3*(LOG_LINE_MAX + PREFIX_MAX) && val >= LOG_LINE_MIN)
+		printk_console_break_len = val;
+	else
+		pr_info("invalid value for printk! with in the scope %u ~ 256\n",
+				3*(LOG_LINE_MAX + PREFIX_MAX));
+
+out:
+	return len;
+}
+
+static const struct file_operations printk_console_break_fops = {
+	.owner		= THIS_MODULE,
+	.open		= proc_printk_console_break_open,
+	.read		= seq_read,
+	.write		= proc_printk_console_break_write,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+#define PRINTK_PROC_DIR "printk"
+static struct proc_dir_entry *printk_proc_dir;
+static struct proc_dir_entry *printk_ratelimited_all_proc;
+static struct proc_dir_entry *printk_console_break_proc;
+#ifdef CONFIG_PRINTK_RATELIMIT_ALL
+int printk_ratelimited_all_init(void)
+{
+	int ret = 0;
+	struct pk_rtall *aprl = NULL;
+	struct ratelimit_state *rs = NULL;
+	unsigned long found = 0, symbolsize = 0;
+	char namebuf[128];
+	int i = 0;
+
+	if (!printk_proc_dir)
+		goto err;
+
+	pkrtall_pcpu_ptr = NULL;
+	printk_ratelimited_all_proc = proc_create_data("ratelimited",
+		0600, printk_proc_dir,
+		&printk_ratelimited_all_fops, NULL);
+	if (!printk_ratelimited_all_proc) {
+		pr_warn("%s: Fail to create /proc/%s/ratelimited\n",
+				__func__, PRINTK_PROC_DIR);
+		goto err;
+	}
+
+	atomic_set(&printk_ratelimited_all_state, PK_RATELIMITED_ALL_INIT);
+	pkrtall_pcpu_ptr = alloc_percpu(struct pk_rtall);
+	if (!pkrtall_pcpu_ptr) {
+		pr_warn("printk ratelimited all init alloc_percpu failed\n");
+		atomic_set(&printk_ratelimited_all_state,
+				PK_RATELIMITED_ALL_OFF);
+		goto err;
+	}
+
+	for_each_possible_cpu(i) {
+		aprl = per_cpu_ptr(pkrtall_pcpu_ptr, i);
+		rs = &aprl->rs;
+		raw_spin_lock_init(&(rs->lock));
+		aprl->rs.interval	= DEFAULT_RATELIMIT_INTERVAL;
+		aprl->rs.burst		= DEFAULT_RATELIMIT_BURST;
+		aprl->ip = 0;
+		aprl->this_sp = NULL;
+	}
+
+	for (i = 0; i < IGNORE_LEN_MAX; i++) {
+		found = kallsyms_lookup_name(ignore_symbols[i].name);
+		if (!found)
+			continue;
+		kallsyms_lookup(found, &symbolsize, NULL, NULL, namebuf);
+		ignore_symbols[i].start = found;
+		ignore_symbols[i].size  = symbolsize;
+	}
+	atomic_set(&printk_ratelimited_all_state, PK_RATELIMITED_ALL_ON);
+	return ret;
+
+err:
+	if (printk_ratelimited_all_proc)
+		proc_remove(printk_ratelimited_all_proc);
+
+	return -ENOMEM;
+}
+
+int printk_ratelimited_all_exit(void)
+{
+	atomic_set(&printk_ratelimited_all_state, PK_RATELIMITED_ALL_OFF);
+	free_percpu(pkrtall_pcpu_ptr);
+
+	if (printk_ratelimited_all_proc)
+		proc_remove(printk_ratelimited_all_proc);
+
+	return 0;
+}
+#else
+int printk_ratelimited_all_init(void)
+{
+	return 0;
+}
+
+int printk_ratelimited_all_exit(void)
+{
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_PRINTK_CONSOLE_RELAXED
+int printk_console_break_init(void)
+{
+	if (!printk_proc_dir)
+		goto err;
+
+	emergency_in_progress = 0;
+	printk_console_break_proc = proc_create_data("relaxed",
+			0600, printk_proc_dir,
+			&printk_console_break_fops, NULL);
+	if (!printk_console_break_proc) {
+		pr_warn("%s: Fail to create /proc/%s/break\n",
+				__func__, PRINTK_PROC_DIR);
+		goto err;
+	}
+	return 0;
+
+err:
+	if (printk_console_break_proc)
+		proc_remove(printk_console_break_proc);
+	return -ENOMEM;
+}
+
+int printk_console_break_exit(void)
+{
+	if (printk_console_break_proc)
+		proc_remove(printk_console_break_proc);
+	return 0;
+}
+#else
+int printk_console_break_init(void)
+{
+	return 0;
+}
+
+int printk_console_break_exit(void)
+{
+	return 0;
+}
+#endif
+
+#if defined(CONFIG_PRINTK_CONSOLE_RELAXED) \
+	|| defined(CONFIG_PRINTK_RATELIMIT_ALL)
+int printk_optimizer_init(void)
+{
+	int ret = 0;
+
+	printk_proc_dir = proc_mkdir(PRINTK_PROC_DIR, NULL);
+	if (!printk_proc_dir) {
+		pr_warn("%s: Fail to create /proc/%s\n",
+				__func__, PRINTK_PROC_DIR);
+		goto err;
+	}
+
+	ret = printk_ratelimited_all_init();
+	if (ret < 0)
+		goto err;
+
+	ret = printk_console_break_init();
+	if (ret < 0)
+		goto err;
+
+	return 0;
+
+err:
+	if (printk_proc_dir)
+		proc_remove(printk_proc_dir);
+	return -ENOMEM;
+}
+
+int printk_optimizer_exit(void)
+{
+	printk_ratelimited_all_exit();
+	printk_console_break_exit();
+
+	if (printk_proc_dir)
+		proc_remove(printk_proc_dir);
+	return 0;
+}
+#else
+int printk_optimizer_init(void)
+{
+	return 0;
+}
+
+int printk_optimizer_exit(void)
+{
+	return 0;
+}
+#endif
+
+int ignore_check(unsigned long addr)
+{
+	int ret = 0;
+	int i = 0;
+
+	if (atomic_read(&printk_ratelimited_all_state)
+			!= PK_RATELIMITED_ALL_ON) {
+		ret = 1;
+		goto out;
+	}
+
+	for (i = 0; i < IGNORE_LEN_MAX; i++) {
+		if (!ignore_symbols[i].start)
+			break;
+
+		if (within(addr, ignore_symbols[i].start,
+					ignore_symbols[i].size)) {
+			ret = 1;
+			break;
+		}
+	}
+
+out:
+	return ret;
+}
+#endif
+
 /*
  * Call the console drivers, asking them to write out
  * log_buf[start] to log_buf[end - 1].
@@ -1579,6 +1949,22 @@ static void call_console_drivers(int level,
 		if (!cpu_online(smp_processor_id()) &&
 		    !(con->flags & CON_ANYTIME))
 			continue;
+
+#ifdef CONFIG_PRINTK_CONSOLE_RELAXED
+		 /* Use serial printing for emergencies,
+		  * using netconsole in normal conditions
+		  */
+		if (atomic_read(&printk_console_break_state)
+			&& emergency_in_progress
+			&& !strstr(con->name, "ttyS"))
+			continue;
+		else if (atomic_read(&printk_console_break_state)
+			&& !emergency_in_progress
+			&& (system_state == SYSTEM_RUNNING)
+			&& strstr(con->name, "ttyS"))
+			continue;
+#endif
+
 		if (con->flags & CON_EXTENDED)
 			con->write(con, ext_text, ext_len);
 		else
@@ -1937,6 +2323,51 @@ int vprintk_default(const char *fmt, va_list args)
 }
 EXPORT_SYMBOL_GPL(vprintk_default);
 
+/* printk ratelimited all */
+#ifdef CONFIG_PRINTK_RATELIMIT_ALL
+asmlinkage __visible int printk(const char *fmt, ...)
+{
+	int pass = 0;
+	int *this_sp = __builtin_frame_address(0);
+	struct pk_rtall *aprl = NULL;
+	unsigned long retip = _RET_IP_;
+	va_list args;
+	int r = 0;
+
+	get_cpu();
+	if (atomic_read(&printk_ratelimited_all_state)
+			!= PK_RATELIMITED_ALL_ON) {
+		pass = 1;
+		goto print;
+	}
+
+	aprl = this_cpu_ptr(pkrtall_pcpu_ptr);
+
+	/* In addition to the interrupt and exclusion ratelimited */
+	if (in_interrupt() || ignore_check(retip)) {
+		pass = 1;
+	} else if (retip != aprl->ip || aprl->this_sp != this_sp) {
+		ratelimit_state_init(&aprl->rs,
+				DEFAULT_RATELIMIT_INTERVAL,
+				DEFAULT_RATELIMIT_BURST);
+		aprl->this_sp = this_sp;
+		aprl->ip = retip;
+	}
+
+print:
+	if (pass || (pkrtall_pcpu_ptr == NULL)
+			|| pkrtall_ratelimit(&aprl->rs, retip)) {
+		va_start(args, fmt);
+		r = vprintk_func(fmt, args);
+		va_end(args);
+	}
+	put_cpu();
+
+	return r;
+}
+
+#else
+
 /**
  * printk - print a kernel message
  * @fmt: format string
@@ -1969,6 +2400,7 @@ asmlinkage __visible int printk(const char *fmt, ...)
 
 	return r;
 }
+#endif
 EXPORT_SYMBOL(printk);
 
 #else /* CONFIG_PRINTK */
@@ -2335,6 +2767,8 @@ void console_unlock(void)
 	unsigned long flags;
 	bool wake_klogd = false;
 	bool do_cond_resched, retry;
+	unsigned int limit = printk_console_break_len;
+	unsigned int used_len = 0;
 
 	if (console_suspended) {
 		up_console_sem();
@@ -2435,11 +2869,21 @@ skip:
 
 		stop_critical_timings();	/* don't trace print latency */
 		call_console_drivers(level, ext_text, ext_len, text, len);
+		used_len += len;
 		start_critical_timings();
 		local_irq_restore(flags);
 
 		if (do_cond_resched)
 			cond_resched();
+
+#ifdef CONFIG_PRINTK_CONSOLE_RELAXED
+		/* Limit single print length */
+		if ((system_state == SYSTEM_RUNNING)
+				&& !emergency_in_progress
+				&& atomic_read(&printk_console_break_state)
+				&& (used_len + len > limit))
+			break;
+#endif
 	}
 	console_locked = 0;
 
@@ -2839,6 +3283,9 @@ static int __init printk_late_init(void)
 		}
 	}
 	hotcpu_notifier(console_cpu_notify, 0);
+
+	printk_optimizer_init();
+
 	return 0;
 }
 late_initcall(printk_late_init);

@@ -970,6 +970,10 @@ static void check_panic_on_oom(struct oom_control *oc,
 	/* Do not panic for oom kills triggered by sysrq */
 	if (is_sysrq_oom(oc))
 		return;
+
+#ifdef CONFIG_PRINTK_CONSOLE_RELAXED
+	printk_verbose_on();
+#endif
 	dump_header(oc, NULL);
 	panic("Out of memory: %s panic_on_oom is enabled\n",
 		sysctl_panic_on_oom == 2 ? "compulsory" : "system-wide");
@@ -1054,6 +1058,9 @@ bool out_of_memory(struct oom_control *oc)
 	select_bad_process(oc);
 	/* Found nothing?!?! Either we hang forever, or we panic. */
 	if (!oc->chosen && !is_sysrq_oom(oc) && !is_memcg_oom(oc)) {
+#ifdef CONFIG_PRINTK_CONSOLE_RELAXED
+		printk_verbose_on();
+#endif
 		dump_header(oc, NULL);
 		panic("Out of memory and no killable processes...\n");
 	}

@@ -181,6 +181,9 @@ unsigned long oops_begin(void)
 	int cpu;
 	unsigned long flags;
 
+#ifdef CONFIG_PRINTK_CONSOLE_RELAXED
+	printk_verbose_on();
+#endif
 	oops_enter();
 
 	/* racy, but better than risking deadlock. */
@@ -217,6 +220,9 @@ void oops_end(unsigned long flags, struct pt_regs *regs, int signr)
 		arch_spin_unlock(&die_lock);
 	raw_local_irq_restore(flags);
 	oops_exit();
+#ifdef CONFIG_PRINTK_CONSOLE_RELAXED
+	printk_verbose_off();
+#endif
 
 	if (!signr)
 		return;

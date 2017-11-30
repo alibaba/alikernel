@@ -69,3 +69,48 @@ int ___ratelimit(struct ratelimit_state *rs, const char *func)
 	return ret;
 }
 EXPORT_SYMBOL(___ratelimit);
+
+#ifdef CONFIG_PRINTK_RATELIMIT_ALL
+int pkrtall_ratelimit(struct ratelimit_state *rs, unsigned long ip)
+{
+	unsigned long flags;
+	int ret;
+
+	if (!rs->interval)
+		return 1;
+
+	/*
+	 * If we contend on this state's lock then almost
+	 * by definition we are too busy to print a message,
+	 * in addition to the one that will be printed by
+	 * the entity that is holding the lock already:
+	 */
+	if (!raw_spin_trylock_irqsave(&rs->lock, flags))
+		return 0;
+
+	if (!rs->begin)
+		rs->begin = jiffies;
+
+	if (time_is_before_jiffies(rs->begin + rs->interval)) {
+		if (rs->missed) {
+			printk_emit(0, -1, NULL, 0,
+					"ip 0x%lx: %d callbacks suppressed\n",
+						ip, rs->missed);
+		}
+		rs->begin   = 0;
+		rs->printed = 0;
+		rs->missed  = 0;
+	}
+
+	if (rs->burst && rs->burst > rs->printed) {
+		rs->printed++;
+		ret = 1;
+	} else {
+		rs->missed++;
+		ret = 0;
+	}
+	raw_spin_unlock_irqrestore(&rs->lock, flags);
+
+	return ret;
+}
+#endif

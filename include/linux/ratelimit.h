@@ -75,6 +75,10 @@ extern struct ratelimit_state printk_ratelimit_state;
 extern int ___ratelimit(struct ratelimit_state *rs, const char *func);
 #define __ratelimit(state) ___ratelimit(state, __func__)
 
+#ifdef CONFIG_PRINTK_RATELIMIT_ALL
+extern int pkrtall_ratelimit(struct ratelimit_state *rs, unsigned long ip);
+#endif
+
 #ifdef CONFIG_PRINTK
 
 #define WARN_ON_RATELIMIT(condition, state)			\

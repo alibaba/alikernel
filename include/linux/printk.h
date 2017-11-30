@@ -62,6 +62,16 @@ static inline void console_verbose(void)
 		console_loglevel = CONSOLE_LOGLEVEL_MOTORMOUTH;
 }
 
+extern int emergency_in_progress;
+static inline void printk_verbose_on(void)
+{
+	emergency_in_progress = 1;
+}
+
+static inline void printk_verbose_off(void)
+{
+	emergency_in_progress = 0;
+}
 /* strlen("ratelimit") + 1 */
 #define DEVKMSG_STR_MAX_SIZE 10
 extern char devkmsg_log_str[];
@@ -129,6 +139,16 @@ void early_printk(const char *fmt, ...);
 #else
 static inline __printf(1, 2) __cold
 void early_printk(const char *s, ...) { }
+#endif
+
+#ifdef CONFIG_PRINTK_RATELIMIT_ALL
+extern atomic_t printk_ratelimited_all_state;
+enum pkrtall_stat {
+	PK_RATELIMITED_ALL_OFF,
+	PK_RATELIMITED_ALL_ON,
+	PK_RATELIMITED_ALL_UINIT,
+	PK_RATELIMITED_ALL_INIT,
+};
 #endif
 
 #ifdef CONFIG_PRINTK_NMI

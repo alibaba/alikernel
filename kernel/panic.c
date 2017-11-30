@@ -136,6 +136,9 @@ void panic(const char *fmt, ...)
 	int old_cpu, this_cpu;
 	bool _crash_kexec_post_notifiers = crash_kexec_post_notifiers;
 
+#ifdef CONFIG_PRINTK_RATELIMIT_ALL
+	atomic_set(&printk_ratelimited_all_state, PK_RATELIMITED_ALL_OFF);
+#endif
 	/*
 	 * Disable local interrupts. This will prevent panic_smp_self_stop
 	 * from deadlocking the first cpu that invokes the panic, since
@@ -166,6 +169,9 @@ void panic(const char *fmt, ...)
 		panic_smp_self_stop();
 
 	console_verbose();
+#ifdef CONFIG_PRINTK_CONSOLE_RELAXED
+	printk_verbose_on();
+#endif
 	bust_spinlocks(1);
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
