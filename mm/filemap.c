@@ -35,6 +35,7 @@
 #include <linux/memcontrol.h>
 #include <linux/cleancache.h>
 #include <linux/rmap.h>
+#include <linux/memdelay.h>
 #include "internal.h"
 
 #define CREATE_TRACE_POINTS

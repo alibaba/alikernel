@@ -1973,11 +1973,15 @@ static int kcompactd(void *p)
 	pgdat->kcompactd_classzone_idx = pgdat->nr_zones - 1;
 
 	while (!kthread_should_stop()) {
+		unsigned long mdflags;
+
 		trace_mm_compaction_kcompactd_sleep(pgdat->node_id);
 		wait_event_freezable(pgdat->kcompactd_wait,
 				kcompactd_work_requested(pgdat));
 
+		memdelay_enter(&mdflags);
 		kcompactd_do_work(pgdat);
+		memdelay_leave(&mdflags);
 	}
 
 	return 0;

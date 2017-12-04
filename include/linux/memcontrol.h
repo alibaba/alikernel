@@ -29,6 +29,7 @@
 #include <linux/mmzone.h>
 #include <linux/writeback.h>
 #include <linux/page-flags.h>
+#include <linux/memdelay.h>
 
 struct mem_cgroup;
 struct page;
@@ -204,6 +205,9 @@ struct mem_cgroup {
 	struct work_struct high_work;
 
 	unsigned long soft_limit;
+
+	/* Memory delay measurement domain */
+	struct memdelay_domain *memdelay_domain;
 
 	/* vmpressure notifications */
 	struct vmpressure vmpressure;
@@ -685,6 +689,11 @@ static inline struct lruvec *mem_cgroup_page_lruvec(struct page *page,
 	return &pgdat->lruvec;
 }
 
+static inline struct mem_cgroup *parent_mem_cgroup(struct mem_cgroup *memcg)
+{
+	return NULL;
+}
+
 static inline bool mm_match_cgroup(struct mm_struct *mm,
 		struct mem_cgroup *memcg)
 {
@@ -695,6 +704,11 @@ static inline bool task_in_mem_cgroup(struct task_struct *task,
 				      const struct mem_cgroup *memcg)
 {
 	return true;
+}
+
+static inline struct mem_cgroup *mem_cgroup_from_task(struct task_struct *task)
+{
+	return NULL;
 }
 
 static inline struct mem_cgroup *

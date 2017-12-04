@@ -10,6 +10,7 @@
 #include <linux/wait.h>
 #include <linux/hash.h>
 #include <linux/kthread.h>
+#include <linux/memdelay.h>
 
 void __init_waitqueue_head(wait_queue_head_t *q, const char *name, struct lock_class_key *key)
 {
@@ -376,6 +377,16 @@ __wait_on_bit(wait_queue_head_t *wq, struct wait_bit_queue *q,
 	      wait_bit_action_f *action, unsigned mode)
 {
 	int ret = 0;
+	int bit_nr = q->key.bit_nr;
+	struct page *page = container_of(q->key.flags, struct page, flags);
+	bool refault = false;
+	unsigned long mdflags;
+
+	if (bit_nr == PG_locked && !PageUptodate(page)
+			&& PageWorkingset(page)) {
+		memdelay_enter(&mdflags);
+		refault = true;
+	}
 
 	do {
 		prepare_to_wait(wq, &q->wait, mode);
@@ -383,6 +394,10 @@ __wait_on_bit(wait_queue_head_t *wq, struct wait_bit_queue *q,
 			ret = (*action)(&q->key, mode);
 	} while (test_bit(q->key.bit_nr, q->key.flags) && !ret);
 	finish_wait(wq, &q->wait);
+
+	if (refault)
+		memdelay_leave(&mdflags);
+
 	return ret;
 }
 EXPORT_SYMBOL(__wait_on_bit);
