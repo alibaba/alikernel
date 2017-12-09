@@ -71,6 +71,8 @@
 #include <net/tcp_states.h>
 #include <linux/net_tstamp.h>
 
+#include <linux/ali_hotfix.h>
+
 /*
  * This structure really needs to be cleaned up.
  * Most of it is for TCP, and not used by any of
@@ -455,6 +457,16 @@ struct sock {
 	void                    (*sk_destruct)(struct sock *sk);
 	struct sock_reuseport __rcu	*sk_reuseport_cb;
 	struct rcu_head		sk_rcu;
+
+	ALI_HOTFIX_RESERVE(1)
+	ALI_HOTFIX_RESERVE(2)
+	ALI_HOTFIX_RESERVE(3)
+	ALI_HOTFIX_RESERVE(4)
+
+	ALI_HOTFIX_RESERVE_P(5)
+	ALI_HOTFIX_RESERVE_P(6)
+	ALI_HOTFIX_RESERVE_P(7)
+	ALI_HOTFIX_RESERVE_P(8)
 };
 
 enum sk_pacing {

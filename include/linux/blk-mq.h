@@ -53,6 +53,15 @@ struct blk_mq_hw_ctx {
 	unsigned long		poll_considered;
 	unsigned long		poll_invoked;
 	unsigned long		poll_success;
+
+	ALI_HOTFIX_RESERVE(1)
+	ALI_HOTFIX_RESERVE(2)
+	ALI_HOTFIX_RESERVE(3)
+	ALI_HOTFIX_RESERVE(4)
+	ALI_HOTFIX_RESERVE(5)
+	ALI_HOTFIX_RESERVE(6)
+	ALI_HOTFIX_RESERVE(7)
+	ALI_HOTFIX_RESERVE(8)
 };
 
 struct blk_mq_tag_set {

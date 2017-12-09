@@ -10,6 +10,8 @@
 #include <linux/flex_proportions.h>
 #include <linux/backing-dev-defs.h>
 
+#include <linux/ali_hotfix.h>
+
 DECLARE_PER_CPU(int, dirty_throttle_leaks);
 
 /*
@@ -98,6 +100,11 @@ struct writeback_control {
 	size_t wb_lcand_bytes;		/* bytes written by last candidate */
 	size_t wb_tcand_bytes;		/* bytes written by this candidate */
 #endif
+
+	ALI_HOTFIX_RESERVE(1)
+	ALI_HOTFIX_RESERVE(2)
+	ALI_HOTFIX_RESERVE(3)
+	ALI_HOTFIX_RESERVE(4)
 };
 
 /*

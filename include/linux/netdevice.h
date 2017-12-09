@@ -54,6 +54,8 @@
 #include <uapi/linux/pkt_cls.h>
 #include <linux/hashtable.h>
 
+#include <linux/ali_hotfix.h>
+
 struct netpoll_info;
 struct device;
 struct phy_device;
@@ -1324,6 +1326,15 @@ struct net_device_ops {
 						       int needed_headroom);
 	int			(*ndo_xdp)(struct net_device *dev,
 					   struct netdev_xdp *xdp);
+
+	ALI_HOTFIX_RESERVE_P(1)
+	ALI_HOTFIX_RESERVE_P(2)
+	ALI_HOTFIX_RESERVE_P(3)
+	ALI_HOTFIX_RESERVE_P(4)
+	ALI_HOTFIX_RESERVE_P(5)
+	ALI_HOTFIX_RESERVE_P(6)
+	ALI_HOTFIX_RESERVE_P(7)
+	ALI_HOTFIX_RESERVE_P(8)
 };
 
 /**

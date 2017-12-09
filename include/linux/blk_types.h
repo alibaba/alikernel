@@ -8,6 +8,8 @@
 #include <linux/types.h>
 #include <linux/bvec.h>
 
+#include <linux/ali_hotfix.h>
+
 struct bio_set;
 struct bio;
 struct bio_integrity_payload;
@@ -79,6 +81,11 @@ struct bio {
 	struct bio_vec		*bi_io_vec;	/* the actual vec list */
 
 	struct bio_set		*bi_pool;
+
+	ALI_HOTFIX_RESERVE(1)
+	ALI_HOTFIX_RESERVE(2)
+	ALI_HOTFIX_RESERVE(3)
+	ALI_HOTFIX_RESERVE(4)
 
 	/*
 	 * We can inline a number of vecs at the end of the bio, to avoid

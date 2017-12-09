@@ -144,6 +144,11 @@ struct cgroup_subsys_state {
 	/* percpu_ref killing and RCU release */
 	struct rcu_head rcu_head;
 	struct work_struct destroy_work;
+
+	ALI_HOTFIX_RESERVE(1)
+	ALI_HOTFIX_RESERVE(2)
+	ALI_HOTFIX_RESERVE(3)
+	ALI_HOTFIX_RESERVE(4)
 };
 
 /*
@@ -224,6 +229,11 @@ struct css_set {
 
 	/* For RCU-protected deletion */
 	struct rcu_head rcu_head;
+
+	ALI_HOTFIX_RESERVE(1)
+	ALI_HOTFIX_RESERVE(2)
+	ALI_HOTFIX_RESERVE(3)
+	ALI_HOTFIX_RESERVE(4)
 };
 
 struct cgroup {
@@ -307,6 +317,15 @@ struct cgroup {
 	/* used to schedule release agent */
 	struct work_struct release_agent_work;
 
+	ALI_HOTFIX_RESERVE(1)
+	ALI_HOTFIX_RESERVE(2)
+	ALI_HOTFIX_RESERVE(3)
+	ALI_HOTFIX_RESERVE(4)
+	ALI_HOTFIX_RESERVE(5)
+	ALI_HOTFIX_RESERVE(6)
+	ALI_HOTFIX_RESERVE(7)
+	ALI_HOTFIX_RESERVE(8)
+
 	/* ids of the ancestors at each level including self */
 	int ancestor_ids[];
 };
@@ -342,6 +361,11 @@ struct cgroup_root {
 
 	/* IDs for cgroups in this hierarchy */
 	struct idr cgroup_idr;
+
+	ALI_HOTFIX_RESERVE(1)
+	ALI_HOTFIX_RESERVE(2)
+	ALI_HOTFIX_RESERVE(3)
+	ALI_HOTFIX_RESERVE(4)
 
 	/* The path to use for release notifications. */
 	char release_agent_path[PATH_MAX];
@@ -458,6 +482,11 @@ struct cgroup_subsys {
 	void (*exit)(struct task_struct *task);
 	void (*free)(struct task_struct *task);
 	void (*bind)(struct cgroup_subsys_state *root_css);
+
+	ALI_HOTFIX_RESERVE_P(1)
+	ALI_HOTFIX_RESERVE_P(2)
+	ALI_HOTFIX_RESERVE_P(3)
+	ALI_HOTFIX_RESERVE_P(4)
 
 	bool early_init:1;
 

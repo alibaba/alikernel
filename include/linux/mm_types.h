@@ -16,6 +16,8 @@
 #include <asm/page.h>
 #include <asm/mmu.h>
 
+#include <linux/ali_hotfix.h>
+
 #ifndef AT_VECTOR_SIZE_ARCH
 #define AT_VECTOR_SIZE_ARCH 0
 #endif
@@ -358,6 +360,11 @@ struct vm_area_struct {
 	struct mempolicy *vm_policy;	/* NUMA policy for the VMA */
 #endif
 	struct vm_userfaultfd_ctx vm_userfaultfd_ctx;
+
+	ALI_HOTFIX_RESERVE(1)
+	ALI_HOTFIX_RESERVE(2)
+	ALI_HOTFIX_RESERVE(3)
+	ALI_HOTFIX_RESERVE(4)
 };
 
 struct core_thread {
@@ -521,6 +528,15 @@ struct mm_struct {
 	atomic_long_t hugetlb_usage;
 #endif
 	struct work_struct async_put_work;
+
+	ALI_HOTFIX_RESERVE(1)
+	ALI_HOTFIX_RESERVE(2)
+	ALI_HOTFIX_RESERVE(3)
+	ALI_HOTFIX_RESERVE(4)
+	ALI_HOTFIX_RESERVE(5)
+	ALI_HOTFIX_RESERVE(6)
+	ALI_HOTFIX_RESERVE(7)
+	ALI_HOTFIX_RESERVE(8)
 };
 
 static inline void mm_init_cpumask(struct mm_struct *mm)

@@ -46,6 +46,11 @@ struct cpuacct {
 	unsigned long *nr_running;
 	unsigned long avenrun[3];
 	u64 *nr_switches;
+
+	ALI_HOTFIX_RESERVE(1)
+	ALI_HOTFIX_RESERVE(2)
+	ALI_HOTFIX_RESERVE(3)
+	ALI_HOTFIX_RESERVE(4)
 };
 
 static inline struct cpuacct *css_ca(struct cgroup_subsys_state *css)
