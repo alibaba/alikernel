@@ -917,15 +917,15 @@ enum hrtimer_restart tcp_pace_kick(struct hrtimer *timer)
 	struct sock *sk = (struct sock *)tp;
 	unsigned long nval, oval;
 
-	for (oval = READ_ONCE(tp->tsq_flags);; oval = nval) {
+	for (oval = READ_ONCE(sk->sk_tsq_flags);; oval = nval) {
 		struct tsq_tasklet *tsq;
 		bool empty;
 
-		if (oval & TSQ_QUEUED)
+		if (oval & TSQF_QUEUED)
 			break;
 
-		nval = (oval & ~TSQ_THROTTLED) | TSQ_QUEUED | TCP_TSQ_DEFERRED;
-		nval = cmpxchg(&tp->tsq_flags, oval, nval);
+		nval = (oval & ~TSQF_THROTTLED) | TSQF_QUEUED | TCPF_TSQ_DEFERRED;
+		nval = cmpxchg(&sk->sk_tsq_flags, oval, nval);
 		if (nval != oval)
 			continue;
 
