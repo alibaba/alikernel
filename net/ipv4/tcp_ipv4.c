@@ -1279,8 +1279,10 @@ struct sock *tcp_v4_syn_recv_sock(const struct sock *sk, struct sk_buff *skb,
 #endif
 	struct ip_options_rcu *inet_opt;
 
-	if (sk_acceptq_is_full(sk))
+	if (sk_acceptq_is_full(sk)) {
+		tcp_listen_warning(sk, skb);
 		goto exit_overflow;
+	}
 
 	newsk = tcp_create_openreq_child(sk, req, skb);
 	if (!newsk)

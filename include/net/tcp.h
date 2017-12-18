@@ -276,6 +276,17 @@ extern atomic_long_t tcp_memory_allocated;
 extern struct percpu_counter tcp_sockets_allocated;
 extern int tcp_memory_pressure;
 
+/* Print message if tcp listen overflow */
+static inline void  tcp_listen_warning(const struct sock *sk,
+				       const struct sk_buff *skb)
+{
+	struct tcphdr *th = tcp_hdr(skb);
+
+	net_info_ratelimited("TCP listen overflow: port %d backlog %u max %u",
+			     ntohs(th->dest), sk->sk_ack_backlog,
+			     sk->sk_max_ack_backlog);
+}
+
 /* optimized version of sk_under_memory_pressure() for TCP sockets */
 static inline bool tcp_under_memory_pressure(const struct sock *sk)
 {
