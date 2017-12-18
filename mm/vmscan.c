@@ -3060,7 +3060,7 @@ unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 					    sc.gfp_mask,
 					    sc.reclaim_idx);
 
-	memdelay_enter(&mdflags);
+	memdelay_enter(&mdflags, true);
 	current->flags |= PF_MEMALLOC;
 	nr_reclaimed = do_try_to_free_pages(zonelist, &sc);
 	current->flags &= ~PF_MEMALLOC;
@@ -3644,7 +3644,7 @@ kswapd_try_sleep:
 		if (is_node_kswapd(kswapd_p)) {
 			trace_mm_vmscan_kswapd_wake(pgdat->node_id,
 					classzone_idx, alloc_order);
-			memdelay_enter(&mdflags);
+			memdelay_enter(&mdflags, false);
 			reclaim_order = balance_pgdat(pgdat, alloc_order,
 								classzone_idx);
 			memdelay_leave(&mdflags);
@@ -3654,7 +3654,9 @@ kswapd_try_sleep:
 			alloc_order = reclaim_order = pgdat->kswapd_order;
 			classzone_idx = pgdat->kswapd_classzone_idx;
 		} else {
+			memdelay_enter(&mdflags, false);
 			balance_mem_cgroup_pgdat(mem, 0);
+			memdelay_leave(&mdflags);
 		}
 	}
 

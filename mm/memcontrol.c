@@ -4134,7 +4134,11 @@ out_kfree:
 	return ret;
 }
 
-static int memory_memdelay_show(struct seq_file *m, void *v);
+static int memory_memdelay_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
+	return memdelay_domain_show(m, memcg->memdelay_domain);
+}
 
 static struct cftype mem_cgroup_legacy_files[] = {
 	{
@@ -5594,13 +5598,6 @@ static int memory_stat_show(struct seq_file *m, void *v)
 		   events[MEM_CGROUP_EVENTS_PGMAJFAULT]);
 
 	return 0;
-}
-
-static int memory_memdelay_show(struct seq_file *m, void *v)
-{
-	struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
-
-	return memdelay_domain_show(m, memcg->memdelay_domain);
 }
 
 static struct cftype memory_files[] = {

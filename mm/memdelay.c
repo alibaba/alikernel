@@ -56,9 +56,9 @@ static void domain_move_clock(struct memdelay_domain *md)
 	if (cmpxchg(&md->period_expires, expires, next) != expires)
 		return;
 
-	none = xchg(&md->times[MDS_NONE], 0);
-	some = xchg(&md->times[MDS_SOME], 0);
-	full = xchg(&md->times[MDS_FULL], 0);
+	none = atomic_long_xchg(&md->times[MDS_NONE], 0);
+	some = atomic_long_xchg(&md->times[MDS_SOME], 0);
+	full = atomic_long_xchg(&md->times[MDS_FULL], 0);
 
 	for (i = 0; i < missed_periods; i++) {
 		unsigned long pct;
@@ -81,7 +81,9 @@ static void domain_move_clock(struct memdelay_domain *md)
 
 static void domain_cpu_update(struct memdelay_domain *md, int cpu,
 			      enum memdelay_task_state old,
-			      enum memdelay_task_state new)
+			      enum memdelay_task_state new,
+			      unsigned long delay,
+			      bool memdelay_isdirect)
 {
 	enum memdelay_domain_state state;
 	struct memdelay_domain_cpu *mdc;
@@ -89,6 +91,12 @@ static void domain_cpu_update(struct memdelay_domain *md, int cpu,
 	u64 now;
 
 	mdc = per_cpu_ptr(md->mdcs, cpu);
+	if (unlikely(delay != 0)) {
+		if (memdelay_isdirect)
+			mdc->aggregate_direct += delay;
+		else
+			mdc->aggregate_background += delay;
+	}
 
 	if (old) {
 		WARN_ONCE(!mdc->tasks[old], "cpu=%d old=%d new=%d counter=%d\n",
@@ -111,12 +119,17 @@ static void domain_cpu_update(struct memdelay_domain *md, int cpu,
 	 * one running the workload, the domain is considered fully
 	 * blocked 50% of the time.
 	 */
-	if (mdc->tasks[MTS_DELAYED_ACTIVE] && !mdc->tasks[MTS_IOWAIT])
-		state = MDS_FULL;
-	else if (mdc->tasks[MTS_DELAYED])
-		state = (mdc->tasks[MTS_RUNNABLE] || mdc->tasks[MTS_IOWAIT]) ?
-			MDS_SOME : MDS_FULL;
-	else
+	if (mdc->tasks[MTS_DELAYED_ACTIVE]){
+		if (mdc->tasks[MTS_IOWAIT])
+			state = MDS_SOME;
+		else
+			state = MDS_FULL;
+	} else if (mdc->tasks[MTS_DELAYED]){
+		if (mdc->tasks[MTS_RUNNABLE] || mdc->tasks[MTS_IOWAIT])
+			state = MDS_SOME;
+		else
+			state = MDS_FULL;
+	} else
 		state = MDS_NONE;
 
 	if (mdc->state == state)
@@ -126,7 +139,7 @@ static void domain_cpu_update(struct memdelay_domain *md, int cpu,
 	delta = (now - mdc->state_start) / NSEC_PER_USEC;
 
 	domain_move_clock(md);
-	md->times[mdc->state] += delta;
+	atomic_long_add(delta, &md->times[mdc->state]);
 
 	mdc->state = state;
 	mdc->state_start = now;
@@ -135,7 +148,7 @@ static void domain_cpu_update(struct memdelay_domain *md, int cpu,
 static struct memdelay_domain *memcg_domain(struct mem_cgroup *memcg)
 {
 #ifdef CONFIG_MEMCG
-	if (!mem_cgroup_disabled())
+	if (!mem_cgroup_disabled() && memcg)
 		return memcg->memdelay_domain;
 #endif
 	return &memdelay_global_domain;
@@ -158,20 +171,21 @@ void memdelay_task_change(struct task_struct *task,
 	struct mem_cgroup *memcg;
 	unsigned long delay = 0;
 
-#ifdef CONFIG_DEBUG_VM
 	WARN_ONCE(task->memdelay_state != old,
 		  "cpu=%d task=%p state=%d (in_iowait=%d PF_MEMDELAYED=%d) old=%d new=%d\n",
 		  cpu, task, task->memdelay_state, task->in_iowait,
 		  !!(task->flags & PF_MEMDELAY), old, new);
 	task->memdelay_state = new;
-#endif
 
 	/* Account when tasks are entering and leaving delays */
 	if (old < MTS_DELAYED && new >= MTS_DELAYED) {
 		task->memdelay_start = cpu_clock(cpu);
 	} else if (old >= MTS_DELAYED && new < MTS_DELAYED) {
 		delay = (cpu_clock(cpu) - task->memdelay_start) / NSEC_PER_USEC;
-		task->memdelay_total += delay;
+		if (task->memdelay_isdirect)
+			task->memdelay_direct += delay;
+		else
+			task->memdelay_background += delay;
 	}
 
 	/* Account domain state changes */
@@ -179,10 +193,9 @@ void memdelay_task_change(struct task_struct *task,
 	memcg = mem_cgroup_from_task(task);
 	do {
 		struct memdelay_domain *md;
-
 		md = memcg_domain(memcg);
-		md->aggregate += delay;
-		domain_cpu_update(md, cpu, old, new);
+		domain_cpu_update(md, cpu, old, new,
+				delay, task->memdelay_isdirect);
 	} while (memcg && (memcg = parent_mem_cgroup(memcg)));
 	rcu_read_unlock();
 };
@@ -226,7 +239,22 @@ int memdelay_domain_show(struct seq_file *s, struct memdelay_domain *md)
 {
 	domain_move_clock(md);
 
-	seq_printf(s, "%lu\n", md->aggregate);
+	{
+		int cpu;
+		unsigned long aggregate_active = 0;
+		unsigned long aggregate_background = 0;
+
+		for_each_online_cpu(cpu) {
+			struct memdelay_domain_cpu *mdc;
+
+			mdc = per_cpu_ptr(md->mdcs, cpu);
+			aggregate_active += mdc->aggregate_direct;
+			aggregate_background += mdc->aggregate_background;
+		}
+		seq_printf(s, "%lu %lu %lu\n",
+			aggregate_active + aggregate_background,
+			aggregate_active, aggregate_background);
+	}
 
 	seq_printf(s, "%lu.%02lu %lu.%02lu %lu.%02lu\n",
 		   LOAD_INT(md->avg_some[0]), LOAD_FRAC(md->avg_some[0]),
@@ -238,7 +266,6 @@ int memdelay_domain_show(struct seq_file *s, struct memdelay_domain *md)
 		   LOAD_INT(md->avg_full[1]), LOAD_FRAC(md->avg_full[1]),
 		   LOAD_INT(md->avg_full[2]), LOAD_FRAC(md->avg_full[2]));
 
-#ifdef CONFIG_DEBUG_VM
 	{
 		int cpu;
 
@@ -253,7 +280,6 @@ int memdelay_domain_show(struct seq_file *s, struct memdelay_domain *md)
 				   mdc->tasks[MTS_DELAYED_ACTIVE]);
 		}
 	}
-#endif
 
 	return 0;
 }
@@ -277,7 +303,10 @@ static const struct file_operations memdelay_fops = {
 
 static int __init memdelay_proc_init(void)
 {
-	proc_create("memdelay", 0, NULL, &memdelay_fops);
+	struct proc_dir_entry *pe;
+	pe = proc_create("memdelay", 0, NULL, &memdelay_fops);
+	if (!pe)
+		return -ENOMEM;
 	return 0;
 }
 module_init(memdelay_proc_init);

@@ -1809,10 +1809,10 @@ struct task_struct {
 	struct io_context *io_context;
 
 	u64             memdelay_start;
-	unsigned long           memdelay_total;
-#ifdef CONFIG_DEBUG_VM
+	bool memdelay_isdirect;
+	unsigned long           memdelay_direct;
+	unsigned long           memdelay_background;
 	int             memdelay_state;
-#endif
 
 	unsigned long ptrace_message;
 	siginfo_t *last_siginfo; /* For ptrace use.  */

@@ -16,11 +16,12 @@
 /**
  * memdelay_enter - mark the beginning of a memory delay section
  * @flags: flags to handle nested memdelay sections
+ * @isdirect: direct delay or backgroud delay in app perspecitive
  *
  * Marks the calling task as being delayed due to a lack of memory,
  * such as waiting for a workingset refault or performing reclaim.
  */
-void memdelay_enter(unsigned long *flags)
+void memdelay_enter(unsigned long *flags, bool isdirect)
 {
 	struct rq *rq;
 
@@ -38,6 +39,7 @@ void memdelay_enter(unsigned long *flags)
 	raw_spin_lock(&rq->lock);
 
 	current->flags |= PF_MEMDELAY;
+	current->memdelay_isdirect = isdirect;
 	memdelay_task_change(current, MTS_RUNNABLE, MTS_DELAYED_ACTIVE);
 
 	raw_spin_unlock(&rq->lock);

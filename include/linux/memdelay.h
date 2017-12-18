@@ -40,19 +40,20 @@ struct memdelay_domain_cpu {
 	/* Delay state of the domain on this CPU */
 	enum memdelay_domain_state state;
 
+	/* Aggregate delayed time of all domain tasks on this cpu*/
+	unsigned long aggregate_direct;
+	unsigned long aggregate_background;
+
 	/* Time of last state change */
 	u64 state_start;
 };
 
 struct memdelay_domain {
-	/* Aggregate delayed time of all domain tasks */
-	unsigned long aggregate;
-
 	/* Per-CPU delay states in the domain */
 	struct memdelay_domain_cpu __percpu *mdcs;
 
 	/* Cumulative state times from all CPUs */
-	unsigned long times[NR_MEMDELAY_DOMAIN_STATES];
+	atomic_long_t times[NR_MEMDELAY_DOMAIN_STATES];
 
 	/* Decaying state time averages over 1m, 5m, 15m */
 	unsigned long period_expires;
@@ -71,7 +72,7 @@ void memdelay_domain_free(struct memdelay_domain *md);
 int memdelay_domain_show(struct seq_file *s, struct memdelay_domain *md);
 
 /* kernel/sched/memdelay.c */
-void memdelay_enter(unsigned long *flags);
+void memdelay_enter(unsigned long *flags, bool isdirect);
 void memdelay_leave(unsigned long *flags);
 
 /**
@@ -86,10 +87,10 @@ void memdelay_leave(unsigned long *flags);
 static inline void memdelay_schedule(struct task_struct *prev,
 				     struct task_struct *next)
 {
-	if (prev->flags & PF_MEMDELAY)
+	if (unlikely(prev->flags & PF_MEMDELAY))
 		memdelay_task_change(prev, MTS_DELAYED_ACTIVE, MTS_DELAYED);
 
-	if (next->flags & PF_MEMDELAY)
+	if (unlikely(next->flags & PF_MEMDELAY))
 		memdelay_task_change(next, MTS_DELAYED, MTS_DELAYED_ACTIVE);
 }
 

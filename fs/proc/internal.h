@@ -155,8 +155,11 @@ extern int proc_pid_status(struct seq_file *, struct pid_namespace *,
 			   struct pid *, struct task_struct *);
 extern int proc_pid_statm(struct seq_file *, struct pid_namespace *,
 			  struct pid *, struct task_struct *);
-extern int proc_pid_memdelay(struct seq_file *, struct pid_namespace *,
+extern int proc_tid_memdelay(struct seq_file *, struct pid_namespace *,
 			     struct pid *, struct task_struct *);
+extern int proc_tgid_memdelay(struct seq_file *, struct pid_namespace *,
+			     struct pid *, struct task_struct *);
+
 
 /*
  * base.c

@@ -1979,7 +1979,7 @@ static int kcompactd(void *p)
 		wait_event_freezable(pgdat->kcompactd_wait,
 				kcompactd_work_requested(pgdat));
 
-		memdelay_enter(&mdflags);
+		memdelay_enter(&mdflags, false);
 		kcompactd_do_work(pgdat);
 		memdelay_leave(&mdflags);
 	}

@@ -384,7 +384,7 @@ __wait_on_bit(wait_queue_head_t *wq, struct wait_bit_queue *q,
 
 	if (bit_nr == PG_locked && !PageUptodate(page)
 			&& PageWorkingset(page)) {
-		memdelay_enter(&mdflags);
+		memdelay_enter(&mdflags, true);
 		refault = true;
 	}
 

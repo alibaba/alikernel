@@ -618,13 +618,44 @@ int proc_pid_statm(struct seq_file *m, struct pid_namespace *ns,
 	return 0;
 }
 
-int proc_pid_memdelay(struct seq_file *m, struct pid_namespace *ns,
-		      struct pid *pid, struct task_struct *task)
+static int do_proc_pid_memdelay(struct seq_file *m, struct pid_namespace *ns,
+		      struct pid *pid, struct task_struct *task, int whole)
 {
-	seq_put_decimal_ull(m, "", task->memdelay_total);
+	unsigned long memdelay_direct = 0;
+	unsigned long memdelay_background = 0;
+
+	if (whole) {
+		struct task_struct *t = task;
+
+		do {
+			memdelay_direct += t->memdelay_direct;
+			memdelay_background += t->memdelay_background;
+		} while_each_thread(task, t);
+	} else {
+		memdelay_direct = task->memdelay_direct;
+		memdelay_background = task->memdelay_background;
+	}
+
+	seq_put_decimal_ull(m, "", memdelay_direct + memdelay_background);
+	seq_put_decimal_ull(m, " ", memdelay_direct);
+	seq_put_decimal_ull(m, " ", memdelay_background);
 	seq_putc(m, '\n');
+
 	return 0;
 }
+
+int proc_tid_memdelay(struct seq_file *m, struct pid_namespace *ns,
+		      struct pid *pid, struct task_struct *task)
+{
+	return do_proc_pid_memdelay(m, ns, pid, task, 0);
+}
+
+int proc_tgid_memdelay(struct seq_file *m, struct pid_namespace *ns,
+		      struct pid *pid, struct task_struct *task)
+{
+	return do_proc_pid_memdelay(m, ns, pid, task, 1);
+}
+
 
 #ifdef CONFIG_PROC_CHILDREN
 static struct pid *
