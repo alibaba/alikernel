@@ -206,8 +206,10 @@ struct mem_cgroup {
 
 	unsigned long soft_limit;
 
+#ifdef CONFIG_MEM_DELAY
 	/* Memory delay measurement domain */
 	struct memdelay_domain *memdelay_domain;
+#endif
 
 	/* vmpressure notifications */
 	struct vmpressure vmpressure;

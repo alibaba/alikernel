@@ -13,6 +13,37 @@
 
 #include "sched.h"
 
+void memdelay_enqueue_task(struct rq *rq, struct task_struct *p, int flags)
+{
+
+	WARN_ON_ONCE(!(flags & ENQUEUE_WAKEUP) && p->memdelay_migrate_enqueue);
+	if (!(flags & ENQUEUE_WAKEUP) || p->memdelay_migrate_enqueue) {
+		memdelay_add_runnable(p);
+		p->memdelay_migrate_enqueue = 0;
+	} else {
+		memdelay_wakeup(p);
+	}
+}
+
+void memdelay_dequeue_task(struct rq *rq, struct task_struct *p, int flags)
+{
+	if (!(flags & DEQUEUE_SLEEP))
+		memdelay_del_runnable(p);
+	else
+		memdelay_sleep(p);
+}
+
+void memdelay_try_to_wake_up(struct task_struct *p)
+{
+	struct rq_flags rf;
+	struct rq *rq;
+
+	rq = __task_rq_lock(p, &rf);
+	memdelay_del_sleeping(p);
+	__task_rq_unlock(rq, &rf);
+	p->memdelay_migrate_enqueue = 1;
+}
+
 /**
  * memdelay_enter - mark the beginning of a memory delay section
  * @flags: flags to handle nested memdelay sections

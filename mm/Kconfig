@@ -676,6 +676,15 @@ config DEFERRED_STRUCT_PAGE_INIT
 	  lifetime of the system until these kthreads finish the
 	  initialisation.
 
+config MEM_DELAY
+	bool "Enable memory delay statistics"
+	default y
+	help
+	  This feature allows to estimate the load of memory lack
+	  It will add stub on enqueue_task and dequeue_task and someelse.
+	  This feature is disable default. It will add 40ns(1.22%) latency on
+	  sched. If it is enabled. the latency is about 120ns, equal with 3.63%
+
 config IDLE_PAGE_TRACKING
 	bool "Enable idle page tracking"
 	depends on SYSFS && MMU

@@ -6,6 +6,7 @@
 
 struct seq_file;
 struct css_set;
+struct rq;
 
 #define LOAD_INT(x) ((x) >> FSHIFT)
 #define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
@@ -63,7 +64,7 @@ struct memdelay_domain {
 
 /* mm/memdelay.c */
 extern struct memdelay_domain memdelay_global_domain;
-void memdelay_init(void);
+
 void memdelay_task_change(struct task_struct *task,
 			  enum memdelay_task_state old,
 			  enum memdelay_task_state new);
@@ -71,9 +72,17 @@ struct memdelay_domain *memdelay_domain_alloc(void);
 void memdelay_domain_free(struct memdelay_domain *md);
 int memdelay_domain_show(struct seq_file *s, struct memdelay_domain *md);
 
+#ifdef CONFIG_MEM_DELAY
+/* mm/memdelay.c */
+void memdelay_init(void);
+
 /* kernel/sched/memdelay.c */
 void memdelay_enter(unsigned long *flags, bool isdirect);
 void memdelay_leave(unsigned long *flags);
+
+void memdelay_enqueue_task(struct rq *rq, struct task_struct *p, int flags);
+void memdelay_dequeue_task(struct rq *rq, struct task_struct *p, int flags);
+void memdelay_try_to_wake_up(struct task_struct *p);
 
 /**
  * memdelay_schedule - note a context switch
@@ -182,5 +191,68 @@ static inline void memdelay_add_sleeping(struct task_struct *task)
 #ifdef CONFIG_CGROUPS
 void cgroup_move_task(struct task_struct *task, struct css_set *to);
 #endif
+
+#else /* CONFIG_MEM_DELAY */
+static inline void memdelay_enqueue_task(struct rq *rq, struct task_struct *p, int flags)
+{
+}
+
+static inline void memdelay_dequeue_task(struct rq *rq, struct task_struct *p, int flags)
+{
+}
+
+static inline void memdelay_try_to_wake_up(struct task_struct *p)
+{
+}
+
+static inline void memdelay_enter(unsigned long *flags, bool isdirect)
+{
+}
+
+static inline void memdelay_leave(unsigned long *flags)
+{
+}
+
+static inline void memdelay_init(void)
+{
+}
+
+static inline void memdelay_schedule(struct task_struct *prev,
+				     struct task_struct *next)
+{
+}
+
+static inline void memdelay_wakeup(struct task_struct *task)
+{
+}
+
+static inline void memdelay_sleep(struct task_struct *task)
+{
+}
+
+static inline void memdelay_del_runnable(struct task_struct *task)
+{
+}
+
+static inline void memdelay_add_runnable(struct task_struct *task)
+{
+}
+
+static inline void memdelay_del_sleeping(struct task_struct *task)
+{
+}
+
+static inline void memdelay_add_sleeping(struct task_struct *task)
+{
+}
+
+#ifdef CONFIG_CGROUPS
+static inline void cgroup_move_task(struct task_struct *task, struct css_set *to)
+{
+	rcu_assign_pointer(task->cgroups, to);
+}
+#endif
+
+#endif /* CONFIG_MEM_DELAY */
 
 #endif /* _LINUX_MEMDELAY_H */

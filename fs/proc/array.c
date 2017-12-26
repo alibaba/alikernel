@@ -618,6 +618,7 @@ int proc_pid_statm(struct seq_file *m, struct pid_namespace *ns,
 	return 0;
 }
 
+#ifdef CONFIG_MEM_DELAY
 static int do_proc_pid_memdelay(struct seq_file *m, struct pid_namespace *ns,
 		      struct pid *pid, struct task_struct *task, int whole)
 {
@@ -655,6 +656,7 @@ int proc_tgid_memdelay(struct seq_file *m, struct pid_namespace *ns,
 {
 	return do_proc_pid_memdelay(m, ns, pid, task, 1);
 }
+#endif
 
 
 #ifdef CONFIG_PROC_CHILDREN

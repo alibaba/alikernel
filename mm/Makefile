@@ -37,8 +37,9 @@ obj-y			:= filemap.o mempool.o oom_kill.o \
 			   mm_init.o mmu_context.o percpu.o slab_common.o \
 			   compaction.o vmacache.o \
 			   interval_tree.o list_lru.o workingset.o \
-			   memdelay.o debug.o $(mmu-y)
+			   debug.o $(mmu-y)
 
+obj-$(CONFIG_MEM_DELAY) += memdelay.o
 obj-y += init-mm.o
 
 ifdef CONFIG_NO_BOOTMEM

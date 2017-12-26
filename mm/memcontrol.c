@@ -4134,11 +4134,13 @@ out_kfree:
 	return ret;
 }
 
+#ifdef CONFIG_MEM_DELAY
 static int memory_memdelay_show(struct seq_file *m, void *v)
 {
 	struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
 	return memdelay_domain_show(m, memcg->memdelay_domain);
 }
+#endif
 
 static struct cftype mem_cgroup_legacy_files[] = {
 	{
@@ -4225,10 +4227,12 @@ static struct cftype mem_cgroup_legacy_files[] = {
 	{
 		.name = "pressure_level",
 	},
+#ifdef CONFIG_MEM_DELAY
 	{
 		.name = "memdelay",
 		.seq_show = memory_memdelay_show,
 	},
+#endif
 #ifdef CONFIG_NUMA
 	{
 		.name = "numa_stat",
@@ -4397,7 +4401,9 @@ static void __mem_cgroup_free(struct mem_cgroup *memcg)
 
 	for_each_node(node)
 		free_mem_cgroup_per_node_info(memcg, node);
+#ifdef CONFIG_MEM_DELAY
 	memdelay_domain_free(memcg->memdelay_domain);
+#endif
 	free_percpu(memcg->stat);
 	kfree(memcg);
 }
@@ -4546,15 +4552,18 @@ mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 
 	/* The following stuff does not apply to the root */
 	if (!parent) {
+#ifdef CONFIG_MEM_DELAY
 		memcg->memdelay_domain = &memdelay_global_domain;
+#endif
 		root_mem_cgroup = memcg;
 		return &memcg->css;
 	}
 
+#ifdef CONFIG_MEM_DELAY
 	memcg->memdelay_domain = memdelay_domain_alloc();
 	if (!memcg->memdelay_domain)
 		goto fail;
-
+#endif
 	error = memcg_online_kmem(memcg);
 	if (error)
 		goto fail;
@@ -5635,11 +5644,13 @@ static struct cftype memory_files[] = {
 		.flags = CFTYPE_NOT_ON_ROOT,
 		.seq_show = memory_stat_show,
 	},
+#ifdef CONFIG_MEM_DELAY
 	{
 		.name = "memdelay",
 		.flags = CFTYPE_NOT_ON_ROOT,
 		.seq_show = memory_memdelay_show,
 	},
+#endif
 	{ }	/* terminate */
 };
 

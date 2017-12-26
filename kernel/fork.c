@@ -1174,10 +1174,13 @@ static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
 	int retval;
 
 	tsk->min_flt = tsk->maj_flt = 0;
+
+#ifdef CONFIG_MEM_DELAY
 	tsk->memdelay_isdirect = 0;
 	tsk->memdelay_direct = 0;
 	tsk->memdelay_background = 0;
 	tsk->memdelay_state = 0;
+#endif
 
 	tsk->nvcsw = tsk->nivcsw = 0;
 #ifdef CONFIG_DETECT_HUNG_TASK
