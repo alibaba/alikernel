@@ -56,6 +56,9 @@ void memdelay_enter(unsigned long *flags, bool isdirect)
 {
 	struct rq *rq;
 
+	if (!current->memdelay_enable)
+		return;
+
 	*flags = current->flags & PF_MEMDELAY;
 	if (*flags)
 		return;
@@ -86,6 +89,9 @@ void memdelay_enter(unsigned long *flags, bool isdirect)
 void memdelay_leave(unsigned long *flags)
 {
 	struct rq *rq;
+
+	if (!current->memdelay_enable)
+		return;
 
 	if (*flags)
 		return;

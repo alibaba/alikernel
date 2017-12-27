@@ -1816,6 +1816,7 @@ struct task_struct {
 	unsigned long           memdelay_direct;
 	unsigned long           memdelay_background;
 	int             memdelay_state;
+	bool memdelay_enable;
 #endif
 	unsigned long ptrace_message;
 	siginfo_t *last_siginfo; /* For ptrace use.  */

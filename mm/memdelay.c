@@ -18,6 +18,8 @@
 
 static DEFINE_PER_CPU(struct memdelay_domain_cpu, global_domain_cpus);
 
+static bool memdelay_enable = false;
+
 /* System-level keeping of memory delay statistics */
 struct memdelay_domain memdelay_global_domain = {
 	.mdcs = &global_domain_cpus,
@@ -170,6 +172,13 @@ void memdelay_task_change(struct task_struct *task,
 	int cpu = task_cpu(task);
 	struct mem_cgroup *memcg;
 	unsigned long delay = 0;
+	bool should_this_loop_run = task->memdelay_enable;
+
+	if (old == MTS_NONE)
+		task->memdelay_enable = should_this_loop_run = memdelay_enable;
+
+	if (!should_this_loop_run)
+		return;
 
 	WARN_ONCE(task->memdelay_state != old,
 		  "cpu=%d task=%p state=%d (in_iowait=%d PF_MEMDELAYED=%d) old=%d new=%d\n",
@@ -301,10 +310,57 @@ static const struct file_operations memdelay_fops = {
 	.release        = single_release,
 };
 
+static ssize_t memdelay_enable_write(struct file *file, const char __user *buf,
+				size_t count, loff_t *offs)
+{
+	char chr;
+
+	if (count < 1 || *offs)
+		return -EINVAL;
+
+	if (copy_from_user(&chr, buf, 1))
+		return -EFAULT;
+
+	switch (chr) {
+	case '0':
+		memdelay_enable = false;
+		break;
+	case '1':
+		memdelay_enable = true;
+		break;
+	default:
+		count = -EINVAL;
+	}
+	return count;
+}
+
+static int memdelay_enable_show(struct seq_file *m, void *v)
+{
+
+	seq_printf(m, "%d\n", memdelay_enable);
+	return 0;
+}
+
+static int memdelay_enable_open(struct inode *inode, struct file *filp)
+{
+	return single_open(filp, memdelay_enable_show, NULL);
+}
+
+static const struct file_operations memdelay_enable_fops = {
+	.open		= memdelay_enable_open,
+	.read		= seq_read,
+	.write		= memdelay_enable_write,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
 static int __init memdelay_proc_init(void)
 {
 	struct proc_dir_entry *pe;
 	pe = proc_create("memdelay", 0, NULL, &memdelay_fops);
+	if (!pe)
+		return -ENOMEM;
+	pe = proc_create("memdelay_enable", 0, NULL, &memdelay_enable_fops);
 	if (!pe)
 		return -ENOMEM;
 	return 0;

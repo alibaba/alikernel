@@ -1180,6 +1180,7 @@ static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
 	tsk->memdelay_direct = 0;
 	tsk->memdelay_background = 0;
 	tsk->memdelay_state = 0;
+	tsk->memdelay_enable = false;
 #endif
 
 	tsk->nvcsw = tsk->nivcsw = 0;
