@@ -3091,12 +3091,13 @@ unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 static void age_active_anon(struct pglist_data *pgdat,
 				struct scan_control *sc)
 {
-	struct mem_cgroup *memcg;
+	struct mem_cgroup *memcg, *root;
 
 	if (!total_swap_pages)
 		return;
 
-	memcg = mem_cgroup_iter(NULL, NULL, NULL);
+	root = sc->target_mem_cgroup;
+	memcg = mem_cgroup_iter(root, NULL, NULL);
 	do {
 		struct lruvec *lruvec = mem_cgroup_lruvec(pgdat, memcg);
 
@@ -3104,7 +3105,7 @@ static void age_active_anon(struct pglist_data *pgdat,
 			shrink_active_list(SWAP_CLUSTER_MAX, lruvec,
 					   sc, LRU_ACTIVE_ANON);
 
-		memcg = mem_cgroup_iter(NULL, memcg, NULL);
+		memcg = mem_cgroup_iter(root, memcg, NULL);
 	} while (memcg);
 }
 
