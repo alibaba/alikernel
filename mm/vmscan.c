@@ -3545,7 +3545,7 @@ out:
 		cond_resched();
 
 		try_to_freeze();
-
+		sc.priority = DEF_PRIORITY;
 		goto loop_again;
 	}
 
