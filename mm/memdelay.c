@@ -141,7 +141,8 @@ static void domain_cpu_update(struct memdelay_domain *md, int cpu,
 	delta = (now - mdc->state_start) / NSEC_PER_USEC;
 
 	domain_move_clock(md);
-	atomic_long_add(delta, &md->times[mdc->state]);
+	/* accept the multi core risk for perfermence */
+	md->times[mdc->state] += delta;
 
 	mdc->state = state;
 	mdc->state_start = now;
@@ -169,7 +170,7 @@ void memdelay_task_change(struct task_struct *task,
 			  enum memdelay_task_state old,
 			  enum memdelay_task_state new)
 {
-	int cpu = task_cpu(task);
+	int cpu = 0;
 	struct mem_cgroup *memcg;
 	unsigned long delay = 0;
 	bool should_this_loop_run = task->memdelay_enable;
@@ -177,13 +178,14 @@ void memdelay_task_change(struct task_struct *task,
 	if (old == MTS_NONE)
 		task->memdelay_enable = should_this_loop_run = memdelay_enable;
 
-	if (!should_this_loop_run)
+	if (likely(!should_this_loop_run))
 		return;
 
+	cpu = task_cpu(task);
 	WARN_ONCE(task->memdelay_state != old,
 		  "cpu=%d task=%p state=%d (in_iowait=%d PF_MEMDELAYED=%d) old=%d new=%d\n",
 		  cpu, task, task->memdelay_state, task->in_iowait,
-		  !!(task->flags & PF_MEMDELAY), old, new);
+		  !!(task->memdelay_slowpath), old, new);
 	task->memdelay_state = new;
 
 	/* Account when tasks are entering and leaving delays */
@@ -200,12 +202,12 @@ void memdelay_task_change(struct task_struct *task,
 	/* Account domain state changes */
 	rcu_read_lock();
 	memcg = mem_cgroup_from_task(task);
-	do {
+	{
 		struct memdelay_domain *md;
 		md = memcg_domain(memcg);
 		domain_cpu_update(md, cpu, old, new,
 				delay, task->memdelay_isdirect);
-	} while (memcg && (memcg = parent_mem_cgroup(memcg)));
+	}
 	rcu_read_unlock();
 };
 
@@ -274,21 +276,6 @@ int memdelay_domain_show(struct seq_file *s, struct memdelay_domain *md)
 		   LOAD_INT(md->avg_full[0]), LOAD_FRAC(md->avg_full[0]),
 		   LOAD_INT(md->avg_full[1]), LOAD_FRAC(md->avg_full[1]),
 		   LOAD_INT(md->avg_full[2]), LOAD_FRAC(md->avg_full[2]));
-
-	{
-		int cpu;
-
-		for_each_online_cpu(cpu) {
-			struct memdelay_domain_cpu *mdc;
-
-			mdc = per_cpu_ptr(md->mdcs, cpu);
-			seq_printf(s, "%d %d %d %d\n",
-				   mdc->tasks[MTS_IOWAIT],
-				   mdc->tasks[MTS_RUNNABLE],
-				   mdc->tasks[MTS_DELAYED],
-				   mdc->tasks[MTS_DELAYED_ACTIVE]);
-		}
-	}
 
 	return 0;
 }

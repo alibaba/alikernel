@@ -54,7 +54,7 @@ struct memdelay_domain {
 	struct memdelay_domain_cpu __percpu *mdcs;
 
 	/* Cumulative state times from all CPUs */
-	atomic_long_t times[NR_MEMDELAY_DOMAIN_STATES];
+	unsigned long times[NR_MEMDELAY_DOMAIN_STATES];
 
 	/* Decaying state time averages over 1m, 5m, 15m */
 	unsigned long period_expires;
@@ -80,8 +80,8 @@ void memdelay_init(void);
 void memdelay_enter(unsigned long *flags, bool isdirect);
 void memdelay_leave(unsigned long *flags);
 
-void memdelay_enqueue_task(struct rq *rq, struct task_struct *p, int flags);
-void memdelay_dequeue_task(struct rq *rq, struct task_struct *p, int flags);
+void memdelay_enqueue_task(struct task_struct *p, int flags);
+void memdelay_dequeue_task(struct task_struct *p, int flags);
 void memdelay_try_to_wake_up(struct task_struct *p);
 
 /**
@@ -96,10 +96,10 @@ void memdelay_try_to_wake_up(struct task_struct *p);
 static inline void memdelay_schedule(struct task_struct *prev,
 				     struct task_struct *next)
 {
-	if (unlikely(prev->flags & PF_MEMDELAY))
+	if (unlikely(prev->memdelay_slowpath))
 		memdelay_task_change(prev, MTS_DELAYED_ACTIVE, MTS_DELAYED);
 
-	if (unlikely(next->flags & PF_MEMDELAY))
+	if (unlikely(next->memdelay_slowpath))
 		memdelay_task_change(next, MTS_DELAYED, MTS_DELAYED_ACTIVE);
 }
 
@@ -112,10 +112,10 @@ static inline void memdelay_schedule(struct task_struct *prev,
  */
 static inline void memdelay_wakeup(struct task_struct *task)
 {
-	if (task->flags & PF_MEMDELAY)
+	if (unlikely(task->memdelay_slowpath))
 		return;
 
-	if (task->in_iowait)
+	if (unlikely(task->in_iowait))
 		memdelay_task_change(task, MTS_IOWAIT, MTS_RUNNABLE);
 	else
 		memdelay_task_change(task, MTS_NONE, MTS_RUNNABLE);
@@ -130,7 +130,7 @@ static inline void memdelay_wakeup(struct task_struct *task)
  */
 static inline void memdelay_sleep(struct task_struct *task)
 {
-	if (task->flags & PF_MEMDELAY)
+	if (task->memdelay_slowpath)
 		return;
 
 	if (task->in_iowait)
@@ -153,7 +153,7 @@ static inline void memdelay_del_add(struct task_struct *task,
 {
 	int state;
 
-	if (task->flags & PF_MEMDELAY)
+	if (task->memdelay_slowpath)
 		state = MTS_DELAYED;
 	else if (runnable)
 		state = MTS_RUNNABLE;
@@ -189,15 +189,17 @@ static inline void memdelay_add_sleeping(struct task_struct *task)
 }
 
 #ifdef CONFIG_CGROUPS
-void cgroup_move_task(struct task_struct *task, struct css_set *to);
+void cgroup_move_task(struct task_struct *task,
+			struct css_set *from,
+			struct css_set *to);
 #endif
 
 #else /* CONFIG_MEM_DELAY */
-static inline void memdelay_enqueue_task(struct rq *rq, struct task_struct *p, int flags)
+static inline void memdelay_enqueue_task(struct task_struct *p, int flags)
 {
 }
 
-static inline void memdelay_dequeue_task(struct rq *rq, struct task_struct *p, int flags)
+static inline void memdelay_dequeue_task(struct task_struct *p, int flags)
 {
 }
 
@@ -247,7 +249,9 @@ static inline void memdelay_add_sleeping(struct task_struct *task)
 }
 
 #ifdef CONFIG_CGROUPS
-static inline void cgroup_move_task(struct task_struct *task, struct css_set *to)
+static inline void cgroup_move_task(struct task_struct *task,
+				struct css_set *from,
+				struct css_set *to)
 {
 	rcu_assign_pointer(task->cgroups, to);
 }

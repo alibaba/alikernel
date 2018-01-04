@@ -13,21 +13,23 @@
 
 #include "sched.h"
 
-void memdelay_enqueue_task(struct rq *rq, struct task_struct *p, int flags)
+void memdelay_enqueue_task(struct task_struct *p, int flags)
 {
-
-	WARN_ON_ONCE(!(flags & ENQUEUE_WAKEUP) && p->memdelay_migrate_enqueue);
-	if (!(flags & ENQUEUE_WAKEUP) || p->memdelay_migrate_enqueue) {
-		memdelay_add_runnable(p);
+	/*
+	 * if disable, it will add 40ns(1.22%) latency on sched.
+	 * if enable, it will add 120ns(3.63%) latency on sched.
+	 */
+	if (unlikely(!(flags & ENQUEUE_WAKEUP) || p->memdelay_migrate_enqueue)) {
 		p->memdelay_migrate_enqueue = 0;
+		memdelay_add_runnable(p);
 	} else {
 		memdelay_wakeup(p);
 	}
 }
 
-void memdelay_dequeue_task(struct rq *rq, struct task_struct *p, int flags)
+void memdelay_dequeue_task(struct task_struct *p, int flags)
 {
-	if (!(flags & DEQUEUE_SLEEP))
+	if (unlikely(!(flags & DEQUEUE_SLEEP)))
 		memdelay_del_runnable(p);
 	else
 		memdelay_sleep(p);
@@ -59,7 +61,7 @@ void memdelay_enter(unsigned long *flags, bool isdirect)
 	if (!current->memdelay_enable)
 		return;
 
-	*flags = current->flags & PF_MEMDELAY;
+	*flags = current->memdelay_slowpath;
 	if (*flags)
 		return;
 	/*
@@ -72,7 +74,7 @@ void memdelay_enter(unsigned long *flags, bool isdirect)
 	rq = this_rq();
 	raw_spin_lock(&rq->lock);
 
-	current->flags |= PF_MEMDELAY;
+	current->memdelay_slowpath = 1;
 	current->memdelay_isdirect = isdirect;
 	memdelay_task_change(current, MTS_RUNNABLE, MTS_DELAYED_ACTIVE);
 
@@ -105,7 +107,7 @@ void memdelay_leave(unsigned long *flags)
 	rq = this_rq();
 	raw_spin_lock(&rq->lock);
 
-	current->flags &= ~PF_MEMDELAY;
+	current->memdelay_slowpath = 0;
 	memdelay_task_change(current, MTS_DELAYED_ACTIVE, MTS_RUNNABLE);
 
 	raw_spin_unlock(&rq->lock);
@@ -116,6 +118,7 @@ void memdelay_leave(unsigned long *flags)
 /**
  * cgroup_move_task - move task to a different cgroup
  * @task: the task
+ * @from: the origin css_set
  * @to: the target css_set
  *
  * Move task to a new cgroup and safely migrate its associated
@@ -125,15 +128,27 @@ void memdelay_leave(unsigned long *flags)
  * changes to the task's scheduling state and - in case the task is
  * running - concurrent changes to its delay state.
  */
-void cgroup_move_task(struct task_struct *task, struct css_set *to)
+void cgroup_move_task(struct task_struct *task,
+			struct css_set *from,
+			struct css_set *to)
 {
 	struct rq_flags rf;
 	struct rq *rq;
 	int state;
 
+	if (!task->memdelay_enable) {
+		rcu_assign_pointer(task->cgroups, to);
+		return;
+	}
+	/* fork new process, the from is null */
+	if (likely(!from)) {
+		rcu_assign_pointer(task->cgroups, to);
+		return;
+	}
+
 	rq = task_rq_lock(task, &rf);
 
-	if (task->flags & PF_MEMDELAY)
+	if (task->memdelay_slowpath)
 		state = MTS_DELAYED + task_current(rq, task);
 	else if (task_on_rq_queued(task))
 		state = MTS_RUNNABLE;
