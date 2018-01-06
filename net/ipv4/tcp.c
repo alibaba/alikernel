@@ -3285,6 +3285,29 @@ static int __init set_thash_entries(char *str)
 }
 __setup("thash_entries=", set_thash_entries);
 
+/* tcp listen hash table size grub parameter, default 2048 */
+static __initdata int tcp_lhtable_entries = 2048;
+static int __init set_tcp_lhtabie_entries(char *str)
+{
+	ssize_t ret;
+
+	if (!str)
+		return 0;
+
+	ret = kstrtouint(str, 0, &tcp_lhtable_entries);
+	if (ret)
+		return 0;
+
+	tcp_lhtable_entries = roundup_pow_of_two(tcp_lhtable_entries);
+	if (tcp_lhtable_entries < INET_LHTABLE_SIZE)
+		tcp_lhtable_entries = INET_LHTABLE_SIZE;
+	else if (tcp_lhtable_entries > INET_LHTABLE_SIZE_MAX)
+		tcp_lhtable_entries = INET_LHTABLE_SIZE_MAX;
+
+	return 1;
+}
+__setup("tcp_lhtable_entries=", set_tcp_lhtabie_entries);
+
 static void __init tcp_init_mem(void)
 {
 	unsigned long limit = nr_free_buffer_pages() / 16;
@@ -3306,6 +3329,10 @@ void __init tcp_init(void)
 
 	percpu_counter_init(&tcp_sockets_allocated, 0, GFP_KERNEL);
 	percpu_counter_init(&tcp_orphan_count, 0, GFP_KERNEL);
+
+	tcp_hashinfo.listening_hash_size = tcp_lhtable_entries;
+	if (inet_hashinfo_init(&tcp_hashinfo))
+		panic("TCP: failed to alloc listen hash table");
 	tcp_hashinfo.bind_bucket_cachep =
 		kmem_cache_create("tcp_bind_bucket",
 				  sizeof(struct inet_bind_bucket), 0,
@@ -3346,7 +3373,6 @@ void __init tcp_init(void)
 		spin_lock_init(&tcp_hashinfo.bhash[i].lock);
 		INIT_HLIST_HEAD(&tcp_hashinfo.bhash[i].chain);
 	}
-
 
 	cnt = tcp_hashinfo.ehash_mask + 1;
 

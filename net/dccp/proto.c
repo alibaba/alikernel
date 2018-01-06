@@ -1127,13 +1127,17 @@ static int __init dccp_init(void)
 	if (rc)
 		goto out_fail;
 	rc = -ENOBUFS;
-	inet_hashinfo_init(&dccp_hashinfo);
+
+	dccp_hashinfo.listening_hash_size = INET_LHTABLE_SIZE;
+	if (inet_hashinfo_init(&dccp_hashinfo))
+		goto out_free_percpu;
+
 	dccp_hashinfo.bind_bucket_cachep =
 		kmem_cache_create("dccp_bind_bucket",
 				  sizeof(struct inet_bind_bucket), 0,
 				  SLAB_HWCACHE_ALIGN, NULL);
 	if (!dccp_hashinfo.bind_bucket_cachep)
-		goto out_free_percpu;
+		goto out_free_inet;
 
 	/*
 	 * Size and allocate the main established and bind bucket
@@ -1229,12 +1233,16 @@ out_free_dccp_ehash:
 	free_pages((unsigned long)dccp_hashinfo.ehash, ehash_order);
 out_free_bind_bucket_cachep:
 	kmem_cache_destroy(dccp_hashinfo.bind_bucket_cachep);
+out_free_inet:
+	free_pages((unsigned long)dccp_hashinfo.listening_hash,
+		   dccp_hashinfo.listening_hash_order);
 out_free_percpu:
 	percpu_counter_destroy(&dccp_orphan_count);
 out_fail:
 	dccp_hashinfo.bhash = NULL;
 	dccp_hashinfo.ehash = NULL;
 	dccp_hashinfo.bind_bucket_cachep = NULL;
+	dccp_hashinfo.listening_hash = NULL;
 	return rc;
 }
 
@@ -1252,6 +1260,8 @@ static void __exit dccp_fini(void)
 	kmem_cache_destroy(dccp_hashinfo.bind_bucket_cachep);
 	dccp_ackvec_exit();
 	dccp_sysctl_exit();
+	free_pages((unsigned long)dccp_hashinfo.listening_hash,
+		   dccp_hashinfo.listening_hash_order);
 	percpu_counter_destroy(&dccp_orphan_count);
 }
 

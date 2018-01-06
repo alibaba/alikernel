@@ -866,7 +866,7 @@ void inet_diag_dump_icsk(struct inet_hashinfo *hashinfo, struct sk_buff *skb,
 		if (!(idiag_states & TCPF_LISTEN))
 			goto skip_listen_ht;
 
-		for (i = s_i; i < INET_LHTABLE_SIZE; i++) {
+		for (i = s_i; i < hashinfo->listening_hash_size; i++) {
 			struct inet_listen_hashbucket *ilb;
 			struct sock *sk;
 

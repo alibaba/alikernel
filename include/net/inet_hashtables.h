@@ -107,7 +107,8 @@ struct inet_listen_hashbucket {
 };
 
 /* This is for listening sockets, thus all sockets which possess wildcards. */
-#define INET_LHTABLE_SIZE	32	/* Yes, really, this is all you need. */
+#define INET_LHTABLE_SIZE	32
+#define INET_LHTABLE_SIZE_MAX	8192
 
 struct inet_hashinfo {
 	/* This is for sockets with full identity only.  Sockets here will
@@ -141,8 +142,9 @@ struct inet_hashinfo {
 	 * table where wildcard'd TCP sockets can exist.  Hash function here
 	 * is just local port number.
 	 */
-	struct inet_listen_hashbucket	listening_hash[INET_LHTABLE_SIZE]
-					____cacheline_aligned_in_smp;
+	struct inet_listen_hashbucket	*listening_hash  ____cacheline_aligned_in_smp;
+	unsigned int			 listening_hash_size;
+	unsigned int			 listening_hash_order;
 };
 
 static inline struct inet_ehash_bucket *inet_ehash_bucket(
@@ -184,14 +186,16 @@ void inet_bind_hash(struct sock *sk, struct inet_bind_bucket *tb,
 		    const unsigned short snum);
 
 /* These can have wildcards, don't try too hard. */
-static inline u32 inet_lhashfn(const struct net *net, const unsigned short num)
+static inline u32 inet_lhashfn(const struct net *net, const unsigned short num,
+			       const u32 lhash_size)
 {
-	return (num + net_hash_mix(net)) & (INET_LHTABLE_SIZE - 1);
+	return (num + net_hash_mix(net)) & (lhash_size - 1);
 }
 
-static inline int inet_sk_listen_hashfn(const struct sock *sk)
+static inline int inet_sk_listen_hashfn(const struct sock *sk,
+					const u32 lhash_size)
 {
-	return inet_lhashfn(sock_net(sk), inet_sk(sk)->inet_num);
+	return inet_lhashfn(sock_net(sk), inet_sk(sk)->inet_num, lhash_size);
 }
 
 /* Caller must disable local BH processing. */
@@ -199,7 +203,7 @@ int __inet_inherit_port(const struct sock *sk, struct sock *child);
 
 void inet_put_port(struct sock *sk);
 
-void inet_hashinfo_init(struct inet_hashinfo *h);
+int inet_hashinfo_init(struct inet_hashinfo *h);
 
 bool inet_ehash_insert(struct sock *sk, struct sock *osk);
 bool inet_ehash_nolisten(struct sock *sk, struct sock *osk);

@@ -213,7 +213,7 @@ struct sock *__inet_lookup_listener(struct net *net,
 				    const __be32 daddr, const unsigned short hnum,
 				    const int dif)
 {
-	unsigned int hash = inet_lhashfn(net, hnum);
+	unsigned int hash = inet_lhashfn(net, hnum, hashinfo->listening_hash_size);
 	struct inet_listen_hashbucket *ilb = &hashinfo->listening_hash[hash];
 	int score, hiscore = 0, matches = 0, reuseport = 0;
 	bool exact_dif = inet_exact_dif_match(net, skb);
@@ -472,7 +472,8 @@ int __inet_hash(struct sock *sk, struct sock *osk,
 		return 0;
 	}
 	WARN_ON(!sk_unhashed(sk));
-	ilb = &hashinfo->listening_hash[inet_sk_listen_hashfn(sk)];
+	ilb = &hashinfo->listening_hash[inet_sk_listen_hashfn(sk,
+				hashinfo->listening_hash_size)];
 
 	spin_lock(&ilb->lock);
 	if (sk->sk_reuseport) {
@@ -519,7 +520,8 @@ void inet_unhash(struct sock *sk)
 		return;
 
 	if (sk->sk_state == TCP_LISTEN) {
-		lock = &hashinfo->listening_hash[inet_sk_listen_hashfn(sk)].lock;
+		lock = &hashinfo->listening_hash[inet_sk_listen_hashfn(sk,
+					hashinfo->listening_hash_size)].lock;
 		listener = true;
 	} else {
 		lock = inet_ehash_lockp(hashinfo, sk->sk_hash);
@@ -660,14 +662,26 @@ int inet_hash_connect(struct inet_timewait_death_row *death_row,
 }
 EXPORT_SYMBOL_GPL(inet_hash_connect);
 
-void inet_hashinfo_init(struct inet_hashinfo *h)
+int inet_hashinfo_init(struct inet_hashinfo *h)
 {
 	int i;
 
-	for (i = 0; i < INET_LHTABLE_SIZE; i++) {
+	h->listening_hash_order = get_order(h->listening_hash_size *
+					    sizeof(struct inet_listen_hashbucket));
+	h->listening_hash = (struct inet_listen_hashbucket *)
+		__get_free_pages(GFP_KERNEL | __GFP_ZERO,
+				 h->listening_hash_order);
+	if (!h->listening_hash)
+		return -ENOMEM;
+
+	pr_info("TCP listen hash table size %d order %d\n", h->listening_hash_size,
+		h->listening_hash_order);
+
+	for (i = 0; i < h->listening_hash_size; i++) {
 		spin_lock_init(&h->listening_hash[i].lock);
 		INIT_HLIST_HEAD(&h->listening_hash[i].head);
 	}
+	return 0;
 }
 EXPORT_SYMBOL_GPL(inet_hashinfo_init);
 
