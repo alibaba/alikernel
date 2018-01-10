@@ -301,6 +301,7 @@ void workingset_refault(struct page *page, void *shadow)
 	refault_distance = (refault - eviction) & EVICTION_MASK;
 
 	inc_node_state(pgdat, WORKINGSET_REFAULT);
+	mem_cgroup_inc_page_stat(page, MEM_CGROUP_STAT_WORKINGSET_REFAULT);
 
 	/*
 	 * Compare the distance to the existing workingset size. We
@@ -313,9 +314,13 @@ void workingset_refault(struct page *page, void *shadow)
 	SetPageWorkingset(page);
 	atomic_long_inc(&lruvec->inactive_age);
 	inc_node_state(pgdat, WORKINGSET_ACTIVATE);
+	mem_cgroup_inc_page_stat(page, MEM_CGROUP_STAT_WORKINGSET_ACTIVATE);
 
-	if (workingset)
+	if (workingset) {
 		inc_node_state(pgdat, WORKINGSET_RESTORE);
+		mem_cgroup_inc_page_stat(page,
+			MEM_CGROUP_STAT_WORKINGSET_RESTORE);
+	}
 out:
 	rcu_read_unlock();
 }

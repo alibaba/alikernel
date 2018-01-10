@@ -109,6 +109,9 @@ static const char * const mem_cgroup_stat_names[] = {
 	"dirty",
 	"writeback",
 	"swap",
+	"workingset_refault",
+	"workingset_activate",
+	"workingset_restore",
 };
 
 static const char * const mem_cgroup_events_names[] = {
