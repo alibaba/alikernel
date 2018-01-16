@@ -3796,6 +3796,8 @@ static int mem_cgroup_oom_control_read(struct seq_file *sf, void *v)
 
 	seq_printf(sf, "oom_kill_disable %d\n", memcg->oom_kill_disable);
 	seq_printf(sf, "under_oom %d\n", (bool)memcg->under_oom);
+	seq_printf(sf, "oom %lu\n", mem_cgroup_read_events(memcg
+				, MEMCG_OOM));
 	seq_printf(sf, "oom_kill %lu\n", mem_cgroup_read_events(memcg
 				, MEMCG_OOM_KILL));
 	return 0;
