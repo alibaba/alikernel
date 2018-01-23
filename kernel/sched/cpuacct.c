@@ -836,7 +836,6 @@ extern  unsigned long calc_load(unsigned long load, unsigned long exp, unsigned 
 static int cpuacct_cgroup_calc_load(struct cpuacct *acct, void *data)
 {
 	long active = 0, active_r = 0;
-	struct cgroup *cgrp = acct->css.cgroup;
 	int cpu;
 	unsigned long *nrptr;
 
