@@ -113,6 +113,18 @@ config EXT4_FS_ENCRYPTION
 	default y
 	depends on EXT4_ENCRYPTION
 
+config EXT4_FS_EXTEND
+	bool "Ext4 Extended Options"
+	default n
+	depends on EXT4_FS
+	help
+	  Enabled ext4 extended options. This feature enables ext4
+	  to support extended options for various purposes. The
+	  details about the extended options can be found in
+	  Documentation/filesystems/ext4.txt.
+
+	  If unsure, say N.
+
 config EXT4_DEBUG
 	bool "EXT4 debugging support"
 	depends on EXT4_FS

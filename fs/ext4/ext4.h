@@ -18,6 +18,7 @@
 
 #include <linux/types.h>
 #include <linux/blkdev.h>
+#include <linux/parser.h>
 #include <linux/magic.h>
 #include <linux/jbd2.h>
 #include <linux/quota.h>
@@ -38,6 +39,8 @@
 #ifdef __KERNEL__
 #include <linux/compat.h>
 #endif
+
+#include "extend.h"
 
 /*
  * The fourth extended filesystem constants/structures
@@ -1351,6 +1354,9 @@ struct ext4_super_block {
  * fourth extended-fs super-block data in memory
  */
 struct ext4_sb_info {
+#ifdef CONFIG_EXT4_FS_EXTEND
+	struct ext4_ext_sb_info s_ext_sb_info;
+#endif /* CONFIG_EXT4_FS_EXTEND */
 	unsigned long s_desc_size;	/* Size of a group descriptor in bytes */
 	unsigned long s_inodes_per_block;/* Number of inodes per block */
 	unsigned long s_blocks_per_group;/* Number of blocks in a group */

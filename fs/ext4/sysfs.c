@@ -398,6 +398,12 @@ int ext4_register_sysfs(struct super_block *sb)
 	if (err)
 		return err;
 
+	err = ext4_register_ext_sysfs(sb);
+	if (err) {
+		kobject_del(&sbi->s_kobj);
+		return err;
+	}
+
 	if (ext4_proc_root)
 		sbi->s_proc = proc_mkdir(sb->s_id, ext4_proc_root);
 
@@ -419,6 +425,8 @@ void ext4_unregister_sysfs(struct super_block *sb)
 			remove_proc_entry(p->name, sbi->s_proc);
 		remove_proc_entry(sb->s_id, ext4_proc_root);
 	}
+
+	ext4_unregister_ext_sysfs(sb);
 	kobject_del(&sbi->s_kobj);
 }
 

@@ -25,7 +25,6 @@
 #include <linux/init.h>
 #include <linux/blkdev.h>
 #include <linux/backing-dev.h>
-#include <linux/parser.h>
 #include <linux/buffer_head.h>
 #include <linux/exportfs.h>
 #include <linux/vfs.h>
@@ -1286,6 +1285,7 @@ enum {
 	Opt_dioread_nolock, Opt_dioread_lock,
 	Opt_discard, Opt_nodiscard, Opt_init_itable, Opt_noinit_itable,
 	Opt_max_dir_size_kb, Opt_nojournal_checksum,
+	Opt_extend,
 };
 
 static const match_table_t tokens = {
@@ -1372,6 +1372,7 @@ static const match_table_t tokens = {
 	{Opt_removed, "reservation"},	/* mount option from ext2/3 */
 	{Opt_removed, "noreservation"}, /* mount option from ext2/3 */
 	{Opt_removed, "journal=%u"},	/* mount option from ext2/3 */
+	{Opt_extend, "extend=%s"},	/* extended mount options   */
 	{Opt_err, NULL},
 };
 
@@ -1572,6 +1573,7 @@ static const struct mount_opts {
 	{Opt_jqfmt_vfsv1, QFMT_VFS_V1, MOPT_QFMT},
 	{Opt_max_dir_size_kb, 0, MOPT_GTE0},
 	{Opt_test_dummy_encryption, 0, MOPT_GTE0},
+	{Opt_extend, 0, MOPT_SET},
 	{Opt_err, 0, 0}
 };
 
@@ -1584,6 +1586,11 @@ static int handle_mount_opt(struct super_block *sb, char *opt, int token,
 	kuid_t uid;
 	kgid_t gid;
 	int arg = 0;
+
+	if (token == Opt_extend) {
+		return ext4_handle_ext_mount_opt(sb, opt, token, args,
+				journal_devnum, journal_ioprio, is_remount);
+	}
 
 #ifdef CONFIG_QUOTA
 	if (token == Opt_usrjquota)
