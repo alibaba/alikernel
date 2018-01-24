@@ -1798,6 +1798,51 @@ _scsih_enable_tlr(struct MPT3SAS_ADAPTER *ioc, struct scsi_device *sdev)
 }
 
 /**
+ * scsih_change_queue_sg_timeout - change request queue's SG timeout
+ * @sdev: scsi device struct
+ *
+ * Change the request queue's minimal SG timeout. It might override
+ * the user specified timeout.
+ */
+static void
+scsih_change_queue_sg_timeout(struct scsi_device *sdev)
+{
+	static const char *const scsih_ids[] = {
+		"ATA     ", "HGST HUH721008AL", "T2F6"
+	};
+	int i;
+
+	if (!sdev || !sdev->request_queue)
+		return;
+
+	/*
+	 * We could observe SATA link reset followed by task abort in
+	 * extreme case. There are two commands involved: flush-cache
+	 * followed by identify PT command. The identify PT command
+	 * is issued through SG IO interface, whose timeout is set
+	 * to 7s if the value given by user is less than it. However,
+	 * 7s isn't enough for the previous flush-cache command to
+	 * complete. Thus we will have timeout and following task
+	 * abort on the identify PT command. This issue is detected
+	 * on some particular disks.
+	 *
+	 * In order to avoid the unnecessary task abort and SATA link
+	 * reset, we set the minimal SG timeout to 60s for these
+	 * problematic disks, to give previous flush-cache command
+	 * enough time to complete.
+	 */
+	for (i = 0; i < ARRAY_SIZE(scsih_ids); i += 3) {
+		if (!strncmp(sdev->vendor, scsih_ids[i], 8) &&
+		    !strncmp(sdev->model, scsih_ids[i + 1], 16) &&
+		    !strncmp(sdev->rev, scsih_ids[i + 2], 4)) {
+			blk_queue_rq_sg_timeout_min(sdev->request_queue,
+						    BLK_DEFAULT_SG_TIMEOUT);
+			break;
+		}
+	}
+}
+
+/**
  * scsih_slave_configure - device configure routine.
  * @sdev: scsi device struct
  *
@@ -1820,6 +1865,8 @@ scsih_slave_configure(struct scsi_device *sdev)
 	char *r_level = "";
 	u16 handle, volume_handle = 0;
 	u64 volume_wwid = 0;
+
+	scsih_change_queue_sg_timeout(sdev);
 
 	qdepth = 1;
 	sas_device_priv_data = sdev->hostdata;
