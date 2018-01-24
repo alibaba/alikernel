@@ -5721,10 +5721,12 @@ bool mem_cgroup_is_offline(struct page *page)
 	if (mem_cgroup_disabled())
 		return false;
 
-	VM_BUG_ON_PAGE(!page->mem_cgroup, page);
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 
 	memcg = page->mem_cgroup;
+
+	if (!memcg)
+		return false;
 
 	return !(memcg->css.flags & CSS_ONLINE);
 }
