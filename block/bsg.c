@@ -166,8 +166,8 @@ static int blk_fill_sgv4_hdr_rq(struct request_queue *q, struct request *rq,
 		rq->timeout = q->sg_timeout;
 	if (!rq->timeout)
 		rq->timeout = BLK_DEFAULT_SG_TIMEOUT;
-	if (rq->timeout < BLK_MIN_SG_TIMEOUT)
-		rq->timeout = BLK_MIN_SG_TIMEOUT;
+	if (rq->timeout < q->sg_timeout_min)
+		rq->timeout = q->sg_timeout_min;
 
 	return 0;
 }

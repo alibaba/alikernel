@@ -71,6 +71,13 @@ void blk_queue_rq_timed_out(struct request_queue *q, rq_timed_out_fn *fn)
 }
 EXPORT_SYMBOL_GPL(blk_queue_rq_timed_out);
 
+void blk_queue_rq_sg_timeout_min(struct request_queue *q,
+				 unsigned int timeout)
+{
+	q->sg_timeout_min = timeout;
+}
+EXPORT_SYMBOL_GPL(blk_queue_rq_sg_timeout_min);
+
 void blk_queue_lld_busy(struct request_queue *q, lld_busy_fn *fn)
 {
 	q->lld_busy_fn = fn;

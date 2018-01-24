@@ -734,6 +734,7 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id)
 
 	mutex_init(&q->sysfs_lock);
 	spin_lock_init(&q->__queue_lock);
+	q->sg_timeout_min = BLK_MIN_SG_TIMEOUT;
 
 	/*
 	 * By default initialize queue_lock to internal lock and driver can
