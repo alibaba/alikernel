@@ -359,8 +359,7 @@ void mem_cgroup_uncharge_list(struct list_head *page_list);
 void mem_cgroup_migrate(struct page *oldpage, struct page *newpage);
 extern int mem_cgroup_last_scanned_node(struct mem_cgroup *mem);
 extern int mem_cgroup_watermark_ok(struct mem_cgroup *mem, int charge_flags);
-const char *mem_cgroup_init_kswapd(struct mem_cgroup *mem,
-		struct kswapd *kswapd_p);
+void mem_cgroup_init_kswapd(struct mem_cgroup *mem, struct kswapd *kswapd_p);
 void mem_cgroup_clear_kswapd(struct mem_cgroup *mem);
 wait_queue_head_t *mem_cgroup_kswapd_wait(struct mem_cgroup *mem);
 

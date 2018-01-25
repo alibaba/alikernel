@@ -3803,9 +3803,9 @@ int kswapd_run(int nid, struct mem_cgroup *mem)
 	pg_data_t *pgdat = NULL;
 	int ret = 0;
 	struct kswapd *kswapd_p;
-	static char name[TASK_COMM_LEN];
+	char name[TASK_COMM_LEN];
 #ifdef CONFIG_MEMCG
-	const char *memcg_name = NULL;
+	char memcg_name[TASK_COMM_LEN];
 #endif
 	struct task_struct *kswapd_thr;
 
@@ -3814,7 +3814,6 @@ int kswapd_run(int nid, struct mem_cgroup *mem)
 		if (pgdat->kswapd_wait)
 			return ret;
 	}
-
 
 	kswapd_p = kzalloc(sizeof(struct kswapd), GFP_KERNEL);
 	if (!kswapd_p)
@@ -3826,8 +3825,10 @@ int kswapd_run(int nid, struct mem_cgroup *mem)
 		snprintf(name, TASK_COMM_LEN, "kswapd_%d", nid);
 	} else {
 #ifdef CONFIG_MEMCG
-			memcg_name = mem_cgroup_init_kswapd(mem, kswapd_p);
-			snprintf(name, TASK_COMM_LEN, "memcg_%s", memcg_name);
+		mem_cgroup_init_kswapd(mem, kswapd_p);
+		cgroup_name(mem->css.cgroup, memcg_name, TASK_COMM_LEN);
+		strncpy(name, "memcg_", TASK_COMM_LEN);
+		strncat(name, memcg_name, TASK_COMM_LEN);
 #endif
 	}
 

@@ -4487,16 +4487,11 @@ int mem_cgroup_watermark_ok(struct mem_cgroup *mem, int charge_flags)
 	return ret;
 }
 
-const char *mem_cgroup_init_kswapd(struct mem_cgroup *memcg,
+void mem_cgroup_init_kswapd(struct mem_cgroup *memcg,
 				struct kswapd *kswapd_p)
 {
-	static char memcg_name_buf[NAME_MAX + 1];
-	struct cgroup *c = memcg->css.cgroup;
-
-	cgroup_name(c, memcg_name_buf, NAME_MAX + 1);
 	memcg->kswapd_wait = &kswapd_p->kswapd_wait;
 	kswapd_p->kswapd_mem = memcg;
-	return memcg_name_buf;
 }
 
 void mem_cgroup_clear_kswapd(struct mem_cgroup *memcg)
