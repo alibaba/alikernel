@@ -15,6 +15,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/fs.h>
+#include <linux/uaccess.h>
 
 static DEFINE_PER_CPU(struct memdelay_domain_cpu, global_domain_cpus);
 

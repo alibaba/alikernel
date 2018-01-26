@@ -832,6 +832,12 @@ static inline void mem_cgroup_handle_over_high(void)
 {
 }
 
+static inline void cgroup_mem_sw_info(struct sysinfo *val,
+				struct mem_cgroup *memcg,
+				long *cached, unsigned long pages[])
+{
+}
+
 static inline void mem_cgroup_oom_enable(void)
 {
 }
