@@ -49,6 +49,7 @@ static int			obj_pool_max_used;
 static struct kmem_cache	*obj_cache;
 
 static int			debug_objects_maxchain __read_mostly;
+static int			debug_objects_maxchecked __read_mostly;
 static int			debug_objects_fixups __read_mostly;
 static int			debug_objects_warnings __read_mostly;
 static int			debug_objects_enabled __read_mostly
@@ -719,7 +720,7 @@ static void __debug_check_no_obj_freed(const void *address, unsigned long size)
 	enum debug_obj_state state;
 	struct debug_bucket *db;
 	struct debug_obj *obj;
-	int cnt;
+	int cnt, objs_checked = 0;
 
 	saddr = (unsigned long) address;
 	eaddr = saddr + size;
@@ -764,7 +765,12 @@ repeat:
 
 		if (cnt > debug_objects_maxchain)
 			debug_objects_maxchain = cnt;
+
+		objs_checked += cnt;
 	}
+
+	if (objs_checked > debug_objects_maxchecked)
+		debug_objects_maxchecked = objs_checked;
 }
 
 void debug_check_no_obj_freed(const void *address, unsigned long size)
@@ -779,6 +785,7 @@ void debug_check_no_obj_freed(const void *address, unsigned long size)
 static int debug_stats_show(struct seq_file *m, void *v)
 {
 	seq_printf(m, "max_chain     :%d\n", debug_objects_maxchain);
+	seq_printf(m, "max_checked   :%d\n", debug_objects_maxchecked);
 	seq_printf(m, "warnings      :%d\n", debug_objects_warnings);
 	seq_printf(m, "fixups        :%d\n", debug_objects_fixups);
 	seq_printf(m, "pool_free     :%d\n", obj_pool_free);
