@@ -1587,8 +1587,7 @@ static inline void handle_one(const struct inode *inode)
 	struct audit_tree_refs *p;
 	struct audit_chunk *chunk;
 	int count;
-	if (likely(!inode->i_fsnotify_marks ||
-		   hlist_empty(&inode->i_fsnotify_marks->list)))
+	if (likely(!inode->i_fsnotify_marks))
 		return;
 	context = current->audit_context;
 	p = context->trees;
@@ -1631,8 +1630,7 @@ retry:
 	seq = read_seqbegin(&rename_lock);
 	for(;;) {
 		struct inode *inode = d_backing_inode(d);
-		if (inode && unlikely(inode->i_fsnotify_marks &&
-		    !hlist_empty(&inode->i_fsnotify_marks->list))) {
+		if (inode && unlikely(inode->i_fsnotify_marks)) {
 			struct audit_chunk *chunk;
 			chunk = audit_tree_lookup(inode);
 			if (chunk) {
