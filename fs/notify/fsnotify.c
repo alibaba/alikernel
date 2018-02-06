@@ -131,7 +131,8 @@ static int send_to_group(struct inode *to_tell,
 			 struct fsnotify_mark *vfsmount_mark,
 			 __u32 mask, void *data,
 			 int data_is, u32 cookie,
-			 const unsigned char *file_name)
+			 const unsigned char *file_name,
+			 struct fsnotify_iter_info *iter_info)
 {
 	struct fsnotify_group *group = NULL;
 	__u32 inode_test_mask = 0;
@@ -182,7 +183,7 @@ static int send_to_group(struct inode *to_tell,
 
 	return group->ops->handle_event(group, to_tell, inode_mark,
 					vfsmount_mark, mask, data, data_is,
-					file_name, cookie);
+					file_name, cookie, iter_info);
 }
 
 /*
@@ -198,8 +199,9 @@ int fsnotify(struct inode *to_tell, __u32 mask, void *data, int data_is,
 	struct fsnotify_mark *inode_mark = NULL, *vfsmount_mark = NULL;
 	struct fsnotify_group *inode_group, *vfsmount_group;
 	struct fsnotify_mark_connector *inode_conn, *vfsmount_conn;
+	struct fsnotify_iter_info iter_info;
 	struct mount *mnt;
-	int idx, ret = 0;
+	int ret = 0;
 	/* global tests shouldn't care about events on child only the specific event */
 	__u32 test_mask = (mask & ~FS_EVENT_ON_CHILD);
 
@@ -228,7 +230,7 @@ int fsnotify(struct inode *to_tell, __u32 mask, void *data, int data_is,
 	    !(mnt && test_mask & mnt->mnt_fsnotify_mask))
 		return 0;
 
-	idx = srcu_read_lock(&fsnotify_mark_srcu);
+	iter_info.srcu_idx = srcu_read_lock(&fsnotify_mark_srcu);
 
 	if ((mask & FS_MODIFY) ||
 	    (test_mask & to_tell->i_fsnotify_mask)) {
@@ -288,8 +290,13 @@ int fsnotify(struct inode *to_tell, __u32 mask, void *data, int data_is,
 				vfsmount_mark = NULL;
 			}
 		}
+
+		iter_info.inode_mark = inode_mark;
+		iter_info.vfsmount_mark = vfsmount_mark;
+
 		ret = send_to_group(to_tell, inode_mark, vfsmount_mark, mask,
-				    data, data_is, cookie, file_name);
+				    data, data_is, cookie, file_name,
+				    &iter_info);
 
 		if (ret && (mask & ALL_FSNOTIFY_PERM_EVENTS))
 			goto out;
@@ -303,7 +310,7 @@ int fsnotify(struct inode *to_tell, __u32 mask, void *data, int data_is,
 	}
 	ret = 0;
 out:
-	srcu_read_unlock(&fsnotify_mark_srcu, idx);
+	srcu_read_unlock(&fsnotify_mark_srcu, iter_info.srcu_idx);
 
 	return ret;
 }
