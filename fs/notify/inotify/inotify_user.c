@@ -49,7 +49,7 @@ static int inotify_max_user_instances __read_mostly;
 static int inotify_max_queued_events __read_mostly;
 static int inotify_max_user_watches __read_mostly;
 
-static struct kmem_cache *inotify_inode_mark_cachep __read_mostly;
+struct kmem_cache *inotify_inode_mark_cachep __read_mostly;
 
 #ifdef CONFIG_SYSCTL
 
@@ -485,16 +485,6 @@ void inotify_ignored_and_remove_idr(struct fsnotify_mark *fsn_mark,
 	atomic_dec(&group->inotify_data.user->inotify_watches);
 }
 
-/* ding dong the mark is dead */
-static void inotify_free_mark(struct fsnotify_mark *fsn_mark)
-{
-	struct inotify_inode_mark *i_mark;
-
-	i_mark = container_of(fsn_mark, struct inotify_inode_mark, fsn_mark);
-
-	kmem_cache_free(inotify_inode_mark_cachep, i_mark);
-}
-
 static int inotify_update_existing_watch(struct fsnotify_group *group,
 					 struct inode *inode,
 					 u32 arg)
@@ -560,7 +550,7 @@ static int inotify_new_watch(struct fsnotify_group *group,
 	if (unlikely(!tmp_i_mark))
 		return -ENOMEM;
 
-	fsnotify_init_mark(&tmp_i_mark->fsn_mark, group, inotify_free_mark);
+	fsnotify_init_mark(&tmp_i_mark->fsn_mark, group);
 	tmp_i_mark->fsn_mark.mask = mask;
 	tmp_i_mark->wd = -1;
 
