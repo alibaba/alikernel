@@ -34,6 +34,7 @@ int ext4_handle_ext_mount_opt(struct super_block *sb, char *opt,
 	u64 val;
 	int token, ret = 0;
 
+	sebi->s_opt |= EXT4_EXT_OPT_VALID;
 	if (!is_remount)
 		mutex_init(&sebi->s_mutex);
 
@@ -86,9 +87,10 @@ struct ext4_ext_attr {
 	struct attribute	attr;
 	unsigned int		offset;
 	unsigned int		len;
+	unsigned int		opts;
 };
 
-#define EXT4_EXT_ATTR(aname, amode, astruct, aename)			\
+#define EXT4_EXT_ATTR(aname, amode, astruct, aename, aopts)		\
 	static struct ext4_ext_attr ext4_ext_attr_##aname = {		\
 		.attr	= {						\
 			.name	= __stringify(aname),			\
@@ -97,14 +99,17 @@ struct ext4_ext_attr {
 		.offset	= offsetof(astruct, aename),			\
 		.len	= offsetofend(astruct, aename) -		\
 			  offsetof(astruct, aename),			\
+		.opts	= aopts,					\
 	}
-#define EXT4_EXT_ATTR_RO(aname, astruct, aename)			\
-	EXT4_EXT_ATTR(aname, 0444, astruct, aename)
-#define EXT4_EXT_ATTR_RW(aname, astruct, aename)			\
-	EXT4_EXT_ATTR(aname, 0644, astruct, aename)
+#define EXT4_EXT_ATTR_RO(aname, astruct, aename, aopts)			\
+	EXT4_EXT_ATTR(aname, 0444, astruct, aename, aopts)
+#define EXT4_EXT_ATTR_RW(aname, astruct, aename, aopts)			\
+	EXT4_EXT_ATTR(aname, 0644, astruct, aename, aopts)
 
 EXT4_EXT_ATTR_RW(delay_update_time,
-		 struct ext4_ext_sb_info, s_delay_update_time);
+		 struct ext4_ext_sb_info,
+		 s_delay_update_time,
+		 EXT4_EXT_OPT_DELAY_UPDATE_TIME);
 
 static struct attribute *ext4_ext_attrs[] = {
 	&ext4_ext_attr_delay_update_time.attr,
@@ -161,7 +166,7 @@ static const struct sysfs_ops ext4_ext_attr_ops = {
 };
 
 static struct kobj_type ext4_ext_sb_ktype = {
-	.default_attrs	= ext4_ext_attrs,
+	.default_attrs	= NULL,
 	.sysfs_ops	= &ext4_ext_attr_ops,
 };
 
@@ -169,9 +174,32 @@ int ext4_register_ext_sysfs(struct super_block *sb)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct ext4_ext_sb_info *sebi = &sbi->s_ext_sb_info;
+	struct ext4_ext_attr *ea;
+	struct attribute *attr;
+	int i, ret;
 
-	return kobject_init_and_add(&sebi->s_kobj, &ext4_ext_sb_ktype,
-				    &sbi->s_kobj, "extend");
+	if (!(sebi->s_opt & EXT4_EXT_OPT_VALID))
+		return 0;
+
+	ret = kobject_init_and_add(&sebi->s_kobj, &ext4_ext_sb_ktype,
+				   &sbi->s_kobj, "extend");
+	if (ret)
+		return ret;
+
+	for (i = 0; (attr = ext4_ext_attrs[i]) != NULL; i++) {
+		ea = container_of(attr, struct ext4_ext_attr, attr);
+		if (ea->opts && (sebi->s_opt & ea->opts) != ea->opts)
+			continue;
+
+		ret = sysfs_create_file(&sebi->s_kobj, attr);
+		if (ret) {
+			kobject_del(&sebi->s_kobj);
+			kobject_put(&sebi->s_kobj);
+			return ret;
+		}
+	}
+
+	return 0;
 }
 
 void ext4_unregister_ext_sysfs(struct super_block *sb)
@@ -179,7 +207,11 @@ void ext4_unregister_ext_sysfs(struct super_block *sb)
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	struct ext4_ext_sb_info *sebi = &sbi->s_ext_sb_info;
 
+	if (!(sebi->s_opt & EXT4_EXT_OPT_VALID))
+		return;
+
 	kobject_del(&sebi->s_kobj);
+	kobject_put(&sebi->s_kobj);
 }
 
 static inline bool ext4_ext_should_update_time(struct timespec *old,
