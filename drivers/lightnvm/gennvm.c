@@ -64,7 +64,8 @@ static int gen_create_tgt(struct nvm_dev *dev, struct nvm_ioctl_create *create)
 	if (!t)
 		return -ENOMEM;
 
-	tqueue = blk_alloc_queue_node(GFP_KERNEL, dev->q->node);
+	tqueue = blk_alloc_queue_node(GFP_KERNEL, dev->q->node,
+				      NULL);
 	if (!tqueue)
 		goto err_t;
 	blk_queue_make_request(tqueue, tt->make_rq);

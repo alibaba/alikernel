@@ -733,7 +733,8 @@ static int null_add_dev(void)
 			goto out_cleanup_tags;
 		}
 	} else if (queue_mode == NULL_Q_BIO) {
-		nullb->q = blk_alloc_queue_node(GFP_KERNEL, home_node);
+		nullb->q = blk_alloc_queue_node(GFP_KERNEL, home_node,
+						NULL);
 		if (!nullb->q) {
 			rv = -ENOMEM;
 			goto out_cleanup_queues;
