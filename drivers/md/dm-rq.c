@@ -852,7 +852,7 @@ static void dm_old_request_fn(struct request_queue *q)
 int dm_old_init_request_queue(struct mapped_device *md)
 {
 	/* Fully initialize the queue */
-	if (!blk_init_allocated_queue(md->queue, dm_old_request_fn, NULL))
+	if (!blk_init_allocated_queue(md->queue, dm_old_request_fn))
 		return -EINVAL;
 
 	/* disable dm_old_request_fn's merge heuristic by default */

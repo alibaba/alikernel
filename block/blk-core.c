@@ -690,6 +690,19 @@ static void blk_rq_timed_out_timer(unsigned long data)
 	kblockd_schedule_work(&q->timeout_work);
 }
 
+/*
+ * blk_alloc_queue_node - allocate a request queue
+ * @gfp_mask: memory allocation flags
+ * @node_id: NUMA node to allocate memory from
+ * @lock: For legacy queues, pointer to a spinlock that will be used to e.g.
+ *        serialize calls to the legacy .request_fn() callback. Ignored for
+ *        blk-mq request queues.
+ *
+ * Note: pass the queue lock as the third argument to this function instead of
+ * setting the queue lock pointer explicitly to avoid triggering a sporadic
+ * crash in the blkcg code. This function namely calls blkcg_init_queue() and
+ * the queue lock pointer must be set before blkcg_init_queue() is called.
+ */
 struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id,
 					   spinlock_t *lock)
 {
@@ -737,11 +750,8 @@ struct request_queue *blk_alloc_queue_node(gfp_t gfp_mask, int node_id,
 	spin_lock_init(&q->__queue_lock);
 	q->sg_timeout_min = BLK_MIN_SG_TIMEOUT;
 
-	/*
-	 * By default initialize queue_lock to internal lock and driver can
-	 * override it later if need be.
-	 */
-	q->queue_lock = &q->__queue_lock;
+	if (!q->mq_ops)
+		q->queue_lock = lock ? : &q->__queue_lock;
 
 	/*
 	 * A queue starts its life with bypass turned on to avoid
@@ -826,11 +836,11 @@ blk_init_queue_node(request_fn_proc *rfn, spinlock_t *lock, int node_id)
 {
 	struct request_queue *uninit_q, *q;
 
-	uninit_q = blk_alloc_queue_node(GFP_KERNEL, node_id, NULL);
+	uninit_q = blk_alloc_queue_node(GFP_KERNEL, node_id, lock);
 	if (!uninit_q)
 		return NULL;
 
-	q = blk_init_allocated_queue(uninit_q, rfn, lock);
+	q = blk_init_allocated_queue(uninit_q, rfn);
 	if (!q)
 		blk_cleanup_queue(uninit_q);
 
@@ -841,8 +851,7 @@ EXPORT_SYMBOL(blk_init_queue_node);
 static blk_qc_t blk_queue_bio(struct request_queue *q, struct bio *bio);
 
 struct request_queue *
-blk_init_allocated_queue(struct request_queue *q, request_fn_proc *rfn,
-			 spinlock_t *lock)
+blk_init_allocated_queue(struct request_queue *q, request_fn_proc *rfn)
 {
 	if (!q)
 		return NULL;
@@ -859,10 +868,6 @@ blk_init_allocated_queue(struct request_queue *q, request_fn_proc *rfn,
 	q->prep_rq_fn		= NULL;
 	q->unprep_rq_fn		= NULL;
 	q->queue_flags		|= QUEUE_FLAG_DEFAULT;
-
-	/* Override internal queue lock with supplied lock pointer */
-	if (lock)
-		q->queue_lock		= lock;
 
 	/*
 	 * This also sets hw/phys segments, boundary and size
