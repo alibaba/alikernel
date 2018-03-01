@@ -4176,7 +4176,11 @@ static int __init proc_modules_init(void)
 	proc_create("modules", 0, NULL, &proc_modules_operations);
 	return 0;
 }
-module_init(proc_modules_init);
+#else	/* CONFIG_PROC_FS */
+static int __init proc_modules_init(void)
+{
+        return 0;
+}
 #endif
 
 /* Given an address, look for it in the module exception tables. */
@@ -4320,3 +4324,11 @@ void module_layout(struct module *mod,
 }
 EXPORT_SYMBOL(module_layout);
 #endif
+
+static int __init initialize_module(void)
+{
+	proc_modules_init();
+
+	return 0;
+}
+module_init(initialize_module);
