@@ -3335,7 +3335,6 @@ void __init tcp_init(void)
 
 	percpu_counter_init(&tcp_sockets_allocated, 0, GFP_KERNEL);
 	percpu_counter_init(&tcp_orphan_count, 0, GFP_KERNEL);
-	inet_hashinfo_init(&tcp_hashinfo);
 
 	tcp_hashinfo.listening_hash_size = tcp_lhtable_entries;
 	if (inet_hashinfo_init(&tcp_hashinfo))
