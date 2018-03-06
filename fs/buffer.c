@@ -668,6 +668,7 @@ int __set_page_dirty_buffers(struct page *page)
 {
 	int newly_dirty;
 	struct address_space *mapping = page_mapping(page);
+	unsigned long flags;
 
 	if (unlikely(!mapping))
 		return !TestSetPageDirty(page);
@@ -686,14 +687,14 @@ int __set_page_dirty_buffers(struct page *page)
 	 * Lock out page->mem_cgroup migration to keep PageDirty
 	 * synchronized with per-memcg dirty page counters.
 	 */
-	lock_page_memcg(page);
+	lock_page_memcg(page, &flags);
 	newly_dirty = !TestSetPageDirty(page);
 	spin_unlock(&mapping->private_lock);
 
 	if (newly_dirty)
 		__set_page_dirty(page, mapping, 1);
 
-	unlock_page_memcg(page);
+	unlock_page_memcg(page, &flags);
 
 	if (newly_dirty)
 		__mark_inode_dirty(mapping->host, I_DIRTY_PAGES);
@@ -1166,14 +1167,15 @@ void mark_buffer_dirty(struct buffer_head *bh)
 	if (!test_set_buffer_dirty(bh)) {
 		struct page *page = bh->b_page;
 		struct address_space *mapping = NULL;
+		unsigned long flags;
 
-		lock_page_memcg(page);
+		lock_page_memcg(page, &flags);
 		if (!TestSetPageDirty(page)) {
 			mapping = page_mapping(page);
 			if (mapping)
 				__set_page_dirty(page, mapping, 0);
 		}
-		unlock_page_memcg(page);
+		unlock_page_memcg(page, &flags);
 		if (mapping)
 			__mark_inode_dirty(mapping->host, I_DIRTY_PAGES);
 	}

@@ -2462,13 +2462,15 @@ void account_page_cleaned(struct page *page, struct address_space *mapping,
  */
 int __set_page_dirty_nobuffers(struct page *page)
 {
-	lock_page_memcg(page);
+	unsigned long flags1;
+
+	lock_page_memcg(page, &flags1);
 	if (!TestSetPageDirty(page)) {
 		struct address_space *mapping = page_mapping(page);
 		unsigned long flags;
 
 		if (!mapping) {
-			unlock_page_memcg(page);
+			unlock_page_memcg(page, &flags1);
 			return 1;
 		}
 
@@ -2479,7 +2481,7 @@ int __set_page_dirty_nobuffers(struct page *page)
 		radix_tree_tag_set(&mapping->page_tree, page_index(page),
 				   PAGECACHE_TAG_DIRTY);
 		spin_unlock_irqrestore(&mapping->tree_lock, flags);
-		unlock_page_memcg(page);
+		unlock_page_memcg(page, &flags1);
 
 		if (mapping->host) {
 			/* !PageAnon && !swapper_space */
@@ -2487,7 +2489,7 @@ int __set_page_dirty_nobuffers(struct page *page)
 		}
 		return 1;
 	}
-	unlock_page_memcg(page);
+	unlock_page_memcg(page, &flags1);
 	return 0;
 }
 EXPORT_SYMBOL(__set_page_dirty_nobuffers);
@@ -2618,16 +2620,17 @@ void cancel_dirty_page(struct page *page)
 	if (mapping_cap_account_dirty(mapping)) {
 		struct inode *inode = mapping->host;
 		struct bdi_writeback *wb;
+		unsigned long flags;
 		bool locked;
 
-		lock_page_memcg(page);
+		lock_page_memcg(page, &flags);
 		wb = unlocked_inode_to_wb_begin(inode, &locked);
 
 		if (TestClearPageDirty(page))
 			account_page_cleaned(page, mapping, wb);
 
 		unlocked_inode_to_wb_end(inode, locked);
-		unlock_page_memcg(page);
+		unlock_page_memcg(page, &flags);
 	} else {
 		ClearPageDirty(page);
 	}
@@ -2713,9 +2716,10 @@ EXPORT_SYMBOL(clear_page_dirty_for_io);
 int test_clear_page_writeback(struct page *page)
 {
 	struct address_space *mapping = page_mapping(page);
+	unsigned long flags;
 	int ret;
 
-	lock_page_memcg(page);
+	lock_page_memcg(page, &flags);
 	if (mapping && mapping_use_writeback_tags(mapping)) {
 		struct inode *inode = mapping->host;
 		struct backing_dev_info *bdi = inode_to_bdi(inode);
@@ -2749,16 +2753,17 @@ int test_clear_page_writeback(struct page *page)
 		dec_zone_page_state(page, NR_ZONE_WRITE_PENDING);
 		inc_node_page_state(page, NR_WRITTEN);
 	}
-	unlock_page_memcg(page);
+	unlock_page_memcg(page, &flags);
 	return ret;
 }
 
 int __test_set_page_writeback(struct page *page, bool keep_write)
 {
 	struct address_space *mapping = page_mapping(page);
+	unsigned long flags1;
 	int ret;
 
-	lock_page_memcg(page);
+	lock_page_memcg(page, &flags1);
 	if (mapping && mapping_use_writeback_tags(mapping)) {
 		struct inode *inode = mapping->host;
 		struct backing_dev_info *bdi = inode_to_bdi(inode);
@@ -2803,7 +2808,7 @@ int __test_set_page_writeback(struct page *page, bool keep_write)
 		inc_node_page_state(page, NR_WRITEBACK);
 		inc_zone_page_state(page, NR_ZONE_WRITE_PENDING);
 	}
-	unlock_page_memcg(page);
+	unlock_page_memcg(page, &flags1);
 	return ret;
 
 }

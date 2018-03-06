@@ -2229,7 +2229,7 @@ void filemap_map_pages(struct fault_env *fe,
 	loff_t size;
 	struct page *head, *page;
 	struct mem_cgroup *memcg = NULL;
-	bool charged, recharge;
+	bool recharge;
 
 	recharge = cacherecharge_enabled();
 	rcu_read_lock();
@@ -2237,8 +2237,6 @@ void filemap_map_pages(struct fault_env *fe,
 			start_pgoff) {
 		if (iter.index > end_pgoff)
 			break;
-
-		charged = false;
 repeat:
 		page = radix_tree_deref_slot(slot);
 		if (unlikely(!page))
@@ -2283,30 +2281,26 @@ repeat:
 
 		if (file->f_ra.mmap_miss > 0)
 			file->f_ra.mmap_miss--;
-		/*
-		 * Currently cacherecharge only support regular filesystem,
-		 * and now no regular filesystem support THP, so no need to
-		 * to consider THP here
-		 */
-		if (recharge && !PageSwapBacked(page) &&
-			!PageCompound(page) && mem_cgroup_is_offline(page) &&
+
+		if (recharge && mem_cgroup_page_rechargeable(page) &&
 			!mem_cgroup_try_charge_many(fe->vma->vm_mm,
-					GFP_ATOMIC, &memcg, 1))
-			charged = true;
+			GFP_KERNEL & ~__GFP_DIRECT_RECLAIM, &memcg, 1)) {
+			unsigned long flags;
+
+			lock_page_memcg(page, &flags);
+			mem_cgroup_move_stat(page, false,
+				page_mem_cgroup(page), memcg);
+			/* see comment in mem_cgroup_recharge_file_page() */
+			mem_cgroup_commit_charge(page, memcg, true, false);
+			unlock_page_memcg(page, &flags);
+		}
 
 		fe->address += (iter.index - last_pgoff) << PAGE_SHIFT;
 		if (fe->pte)
 			fe->pte += iter.index - last_pgoff;
 		last_pgoff = iter.index;
-		if (alloc_set_pte(fe, NULL, page)) {
-			if (charged)
-				mem_cgroup_cancel_charge_many(memcg, 1);
+		if (alloc_set_pte(fe, NULL, page))
 			goto unlock;
-		}
-		if (charged) {
-			mem_cgroup_commit_charge(page,
-					memcg, true, false);
-		}
 		unlock_page(page);
 		goto next;
 unlock:
@@ -2321,10 +2315,6 @@ next:
 			break;
 	}
 	rcu_read_unlock();
-#ifdef CONFIG_MEMCG
-	if (memcg)
-		css_put(&memcg->css);
-#endif
 }
 EXPORT_SYMBOL(filemap_map_pages);
 

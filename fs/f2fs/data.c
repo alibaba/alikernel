@@ -1828,23 +1828,23 @@ int f2fs_release_page(struct page *page, gfp_t wait)
 void f2fs_set_page_dirty_nobuffers(struct page *page)
 {
 	struct address_space *mapping = page->mapping;
-	unsigned long flags;
+	unsigned long flags, flags1;
 
 	if (unlikely(!mapping))
 		return;
 
 	spin_lock(&mapping->private_lock);
-	lock_page_memcg(page);
+	lock_page_memcg(page, &flags);
 	SetPageDirty(page);
 	spin_unlock(&mapping->private_lock);
 
-	spin_lock_irqsave(&mapping->tree_lock, flags);
+	spin_lock_irqsave(&mapping->tree_lock, flags1);
 	WARN_ON_ONCE(!PageUptodate(page));
 	account_page_dirtied(page, mapping);
 	radix_tree_tag_set(&mapping->page_tree,
 			page_index(page), PAGECACHE_TAG_DIRTY);
-	spin_unlock_irqrestore(&mapping->tree_lock, flags);
-	unlock_page_memcg(page);
+	spin_unlock_irqrestore(&mapping->tree_lock, flags1);
+	unlock_page_memcg(page, &flags);
 
 	__mark_inode_dirty(mapping->host, I_DIRTY_PAGES);
 	return;

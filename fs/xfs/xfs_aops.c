@@ -1661,6 +1661,7 @@ xfs_vm_set_page_dirty(
 	loff_t			end_offset;
 	loff_t			offset;
 	int			newly_dirty;
+	unsigned long		flags;
 
 	if (unlikely(!mapping))
 		return !TestSetPageDirty(page);
@@ -1684,7 +1685,7 @@ xfs_vm_set_page_dirty(
 	 * Lock out page->mem_cgroup migration to keep PageDirty
 	 * synchronized with per-memcg dirty page counters.
 	 */
-	lock_page_memcg(page);
+	lock_page_memcg(page, &flags);
 	newly_dirty = !TestSetPageDirty(page);
 	spin_unlock(&mapping->private_lock);
 
@@ -1701,7 +1702,7 @@ xfs_vm_set_page_dirty(
 		}
 		spin_unlock_irqrestore(&mapping->tree_lock, flags);
 	}
-	unlock_page_memcg(page);
+	unlock_page_memcg(page, &flags);
 	if (newly_dirty)
 		__mark_inode_dirty(mapping->host, I_DIRTY_PAGES);
 	return newly_dirty;

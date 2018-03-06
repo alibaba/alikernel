@@ -325,6 +325,11 @@ static inline bool mem_cgroup_disabled(void)
 	return !cgroup_subsys_enabled(memory_cgrp_subsys);
 }
 
+static inline struct mem_cgroup *page_mem_cgroup(struct page *page)
+{
+	return page->mem_cgroup;
+}
+
 /**
  * mem_cgroup_events - count memory events against a cgroup
  * @memcg: the memory cgroup
@@ -341,24 +346,40 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 
 extern struct mutex memcg_limit_mutex;
 
-bool cacherecharge_enabled(void);
-bool mem_cgroup_is_offline(struct page *page);
 bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg);
+
+/* cacherecharege */
+bool cacherecharge_enabled(void);
+bool mem_cgroup_page_rechargeable(struct page *page);
+int mem_cgroup_recharge_file_page(struct vm_area_struct *vma,
+				struct page *page);
+int mem_cgroup_try_charge_many(struct mm_struct *mm, gfp_t gfp_mask,
+		struct mem_cgroup **memcgp, unsigned int nr_pages);
+
+void mem_cgroup_move_stat(struct page *page,
+			bool compound,
+			struct mem_cgroup *from,
+			struct mem_cgroup *to);
+void __meminit pgdat_page_cgroup_init(struct pglist_data *pgdat);
+#ifdef CONFIG_SPARSEMEM
+static inline void __init page_cgroup_init_flatmem(void)
+{
+}
+void __init page_cgroup_init(void);
+#else
+void __init page_cgroup_init_flatmem(void);
+static inline void __init page_cgroup_init(void)
+{
+}
+#endif
 
 int mem_cgroup_try_charge(struct page *page, struct mm_struct *mm,
 			  gfp_t gfp_mask, struct mem_cgroup **memcgp,
 			  bool compound);
-int mem_cgroup_try_charge_many(struct mm_struct *mm, gfp_t gfp_mask,
-		struct mem_cgroup **memcgp, unsigned int nr_pages);
-int mem_cgroup_try_recharge_file_page(struct vm_area_struct *vma,
-				struct mem_cgroup **memcgp,
-				struct page *page);
 void mem_cgroup_commit_charge(struct page *page, struct mem_cgroup *memcg,
 			      bool lrucare, bool compound);
 void mem_cgroup_cancel_charge(struct page *page, struct mem_cgroup *memcg,
 		bool compound);
-void mem_cgroup_cancel_charge_many(struct mem_cgroup *memcg,
-		unsigned int nr_pages);
 void mem_cgroup_uncharge(struct page *page);
 void mem_cgroup_uncharge_list(struct list_head *page_list);
 
@@ -598,8 +619,8 @@ static inline void count_mem_cgroup_vm_events(struct mem_cgroup *memcg,
 extern int do_swap_account;
 #endif
 
-void lock_page_memcg(struct page *page);
-void unlock_page_memcg(struct page *page);
+void lock_page_memcg(struct page *page, unsigned long *flags);
+void unlock_page_memcg(struct page *page, unsigned long *flags);
 
 /**
  * mem_cgroup_update_page_stat - update page state statistics
@@ -619,7 +640,7 @@ void unlock_page_memcg(struct page *page);
 static inline void mem_cgroup_update_page_stat(struct page *page,
 				 enum mem_cgroup_stat_index idx, int val)
 {
-	VM_BUG_ON(!(rcu_read_lock_held() || PageLocked(page)));
+	VM_BUG_ON(!PageLocked(page));
 
 	if (page->mem_cgroup)
 		this_cpu_add(page->mem_cgroup->stat->count[idx], val);
@@ -689,14 +710,52 @@ static inline bool mem_cgroup_disabled(void)
 	return true;
 }
 
+static inline struct mem_cgroup *page_mem_cgroup(struct page *page)
+{
+	return NULL;
+}
+
 static inline bool cacherecharge_enabled(void)
 {
 	return false;
 }
 
-static inline bool mem_cgroup_is_offline(struct page *page)
+static inline bool mem_cgroup_page_rechargeable(struct page *page)
 {
 	return false;
+}
+
+static inline int mem_cgroup_try_charge_many(struct mm_struct *mm,
+					gfp_t gfp_mask,
+					struct mem_cgroup **memcgp,
+					unsigned int nr_pages)
+{
+	return 0;
+}
+
+static inline int mem_cgroup_recharge_file_page(struct vm_area_struct *vma,
+				struct page *page)
+{
+	return 0;
+}
+
+static inline void mem_cgroup_move_stat(struct page *page,
+			bool compound,
+			struct mem_cgroup *from,
+			struct mem_cgroup *to)
+{
+}
+
+static inline void __meminit pgdat_page_cgroup_init(struct pglist_data *pgdat)
+{
+}
+
+static inline void page_cgroup_init(void)
+{
+}
+
+static inline void __init page_cgroup_init_flatmem(void)
+{
 }
 
 static inline void mem_cgroup_events(struct mem_cgroup *memcg,
@@ -720,22 +779,6 @@ static inline int mem_cgroup_try_charge(struct page *page, struct mm_struct *mm,
 	return 0;
 }
 
-static inline int mem_cgroup_try_charge_many(struct mm_struct *mm,
-					gfp_t gfp_mask,
-					struct mem_cgroup **memcgp,
-					unsigned int nr_pages)
-{
-	return 0;
-}
-
-static inline int mem_cgroup_try_recharge_file_page(struct vm_area_struct *vma,
-				struct mem_cgroup **memcgp,
-				struct page *page)
-{
-	*memcgp = NULL;
-	return 0;
-}
-
 static inline void mem_cgroup_commit_charge(struct page *page,
 					    struct mem_cgroup *memcg,
 					    bool lrucare, bool compound)
@@ -745,11 +788,6 @@ static inline void mem_cgroup_commit_charge(struct page *page,
 static inline void mem_cgroup_cancel_charge(struct page *page,
 					    struct mem_cgroup *memcg,
 					    bool compound)
-{
-}
-
-static inline void mem_cgroup_cancel_charge_many(struct mem_cgroup *memcg,
-				unsigned int nr_pages)
 {
 }
 
@@ -864,11 +902,11 @@ mem_cgroup_print_oom_info(struct mem_cgroup *memcg, struct task_struct *p)
 {
 }
 
-static inline void lock_page_memcg(struct page *page)
+static inline void lock_page_memcg(struct page *page, unsigned long *flags)
 {
 }
 
-static inline void unlock_page_memcg(struct page *page)
+static inline void unlock_page_memcg(struct page *page, unsigned long *flags)
 {
 }
 

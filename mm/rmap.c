@@ -1164,10 +1164,11 @@ void page_add_new_anon_rmap(struct page *page,
  */
 void page_add_file_rmap(struct page *page, bool compound)
 {
+	unsigned long flags;
 	int i, nr = 1;
 
 	VM_BUG_ON_PAGE(compound && !PageTransHuge(page), page);
-	lock_page_memcg(page);
+	lock_page_memcg(page, &flags);
 	if (compound && PageTransHuge(page)) {
 		for (i = 0, nr = 0; i < HPAGE_PMD_NR; i++) {
 			if (atomic_inc_and_test(&page[i]._mapcount))
@@ -1191,15 +1192,16 @@ void page_add_file_rmap(struct page *page, bool compound)
 	__mod_node_page_state(page_pgdat(page), NR_FILE_MAPPED, nr);
 	mem_cgroup_update_page_stat(page, MEM_CGROUP_STAT_FILE_MAPPED, nr);
 out:
-	unlock_page_memcg(page);
+	unlock_page_memcg(page, &flags);
 }
 
 static void page_remove_file_rmap(struct page *page, bool compound)
 {
+	unsigned long flags;
 	int i, nr = 1;
 
 	VM_BUG_ON_PAGE(compound && !PageHead(page), page);
-	lock_page_memcg(page);
+	lock_page_memcg(page, &flags);
 
 	/* Hugepages are not counted in NR_FILE_MAPPED for now. */
 	if (unlikely(PageHuge(page))) {
@@ -1234,7 +1236,7 @@ static void page_remove_file_rmap(struct page *page, bool compound)
 	if (unlikely(PageMlocked(page)))
 		clear_page_mlock(page);
 out:
-	unlock_page_memcg(page);
+	unlock_page_memcg(page, &flags);
 }
 
 static void page_remove_anon_compound_rmap(struct page *page)

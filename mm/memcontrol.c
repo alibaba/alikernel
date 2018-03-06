@@ -35,6 +35,8 @@
 #include <linux/memcontrol.h>
 #include <linux/cgroup.h>
 #include <linux/mm.h>
+#include <linux/vmalloc.h>
+#include <linux/memory.h>
 #include <linux/hugetlb.h>
 #include <linux/pagemap.h>
 #include <linux/smp.h>
@@ -94,6 +96,8 @@ int do_swap_account __read_mostly;
 #else
 #define do_swap_account		0
 #endif
+
+static bool cacherecharge;
 
 /* Whether legacy memory+swap accounting is active */
 static bool do_memsw_account(void)
@@ -1730,6 +1734,333 @@ cleanup:
 	return true;
 }
 
+struct page_cgroup {
+	spinlock_t lock;
+};
+
+/*
+ * Below is copyed from mm/page_cgroup.c
+ * which has been replaced by mm/page_ext.c.
+ */
+static unsigned long total_usage;
+
+#if !defined(CONFIG_SPARSEMEM)
+
+void __meminit pgdat_page_cgroup_init(struct pglist_data *pgdat)
+{
+	pgdat->node_page_cgroup = NULL;
+}
+
+struct page_cgroup *lookup_page_cgroup(struct page *page)
+{
+	unsigned long pfn = page_to_pfn(page);
+	unsigned long offset;
+	struct page_cgroup *base;
+
+	base = NODE_DATA(page_to_nid(page))->node_page_cgroup;
+#ifdef CONFIG_DEBUG_VM
+	/*
+	 * The sanity checks the page allocator does upon freeing a
+	 * page can reach here before the page_cgroup arrays are
+	 * allocated when feeding a range of pages to the allocator
+	 * for the first time during bootup or memory hotplug.
+	 */
+	if (unlikely(!base))
+		return NULL;
+#endif
+	offset = pfn - NODE_DATA(page_to_nid(page))->node_start_pfn;
+	return base + offset;
+}
+
+static int __init alloc_node_page_cgroup(int nid)
+{
+	struct page_cgroup *base, *pc;
+	unsigned long table_size;
+	unsigned long nr_pages;
+
+	nr_pages = NODE_DATA(nid)->node_spanned_pages;
+	if (!nr_pages)
+		return 0;
+
+	table_size = sizeof(struct page_cgroup) * nr_pages;
+
+	base = __alloc_bootmem_node_nopanic(NODE_DATA(nid),
+			table_size, PAGE_SIZE, __pa(MAX_DMA_ADDRESS));
+	if (!base)
+		return -ENOMEM;
+
+	pc = base;
+	for (i = 0; i < nr_pages; i++) {
+		spin_lock_init(&pc->lock);
+		pc++;
+	}
+	NODE_DATA(nid)->node_page_cgroup = base;
+	total_usage += table_size;
+	return 0;
+}
+
+void __init page_cgroup_init_flatmem(void)
+{
+
+	int nid, fail;
+
+	if (mem_cgroup_disabled() || !cacherecharge)
+		return;
+
+	for_each_online_node(nid)  {
+		fail = alloc_node_page_cgroup(nid);
+		if (fail)
+			goto fail;
+	}
+	printk(KERN_INFO "allocated %ld bytes of page_cgroup\n", total_usage);
+	printk(KERN_INFO "please try 'cgroup_disable=memory' option if you"
+	" don't want memory cgroups\n");
+	return;
+fail:
+	printk(KERN_CRIT "allocation of page_cgroup failed.\n");
+	printk(KERN_CRIT "please try 'cgroup_disable=memory' boot option\n");
+	panic("Out of memory");
+}
+
+#else /* CONFIG_FLAT_NODE_MEM_MAP */
+
+struct page_cgroup *lookup_page_cgroup(struct page *page)
+{
+	unsigned long pfn = page_to_pfn(page);
+	struct mem_section *section = __pfn_to_section(pfn);
+#ifdef CONFIG_DEBUG_VM
+	/*
+	 * The sanity checks the page allocator does upon freeing a
+	 * page can reach here before the page_cgroup arrays are
+	 * allocated when feeding a range of pages to the allocator
+	 * for the first time during bootup or memory hotplug.
+	 */
+	if (!section->page_cgroup)
+		return NULL;
+#endif
+	return section->page_cgroup + pfn;
+}
+
+static void *__meminit alloc_page_cgroup(size_t size, int nid)
+{
+	gfp_t flags = GFP_KERNEL | __GFP_ZERO | __GFP_NOWARN;
+	void *addr = NULL;
+
+	addr = alloc_pages_exact_nid(nid, size, flags);
+	if (addr) {
+		kmemleak_alloc(addr, size, 1, flags);
+		return addr;
+	}
+
+	if (node_state(nid, N_HIGH_MEMORY))
+		addr = vzalloc_node(size, nid);
+	else
+		addr = vzalloc(size);
+
+	return addr;
+}
+
+static int __meminit init_section_page_cgroup(unsigned long pfn, int nid)
+{
+	struct mem_section *section;
+	struct page_cgroup *base, *pc;
+	unsigned long table_size;
+	int i;
+
+	section = __pfn_to_section(pfn);
+
+	if (section->page_cgroup)
+		return 0;
+
+	table_size = sizeof(struct page_cgroup) * PAGES_PER_SECTION;
+	base = alloc_page_cgroup(table_size, nid);
+
+	/*
+	 * The value stored in section->page_cgroup is (base - pfn)
+	 * and it does not point to the memory block allocated above,
+	 * causing kmemleak false positives.
+	 */
+	kmemleak_not_leak(base);
+
+	if (!base) {
+		printk(KERN_ERR "page cgroup allocation failure\n");
+		return -ENOMEM;
+	}
+
+	pc = base;
+	for (i = 0; i < PAGES_PER_SECTION; i++) {
+		spin_lock_init(&pc->lock);
+		pc++;
+	}
+
+	/*
+	 * The passed "pfn" may not be aligned to SECTION.  For the calculation
+	 * we need to apply a mask.
+	 */
+	pfn &= PAGE_SECTION_MASK;
+	section->page_cgroup = base - pfn;
+	total_usage += table_size;
+	return 0;
+}
+#ifdef CONFIG_MEMORY_HOTPLUG
+static void free_page_cgroup(void *addr)
+{
+	if (is_vmalloc_addr(addr)) {
+		vfree(addr);
+	} else {
+		struct page *page = virt_to_page(addr);
+		size_t table_size =
+			sizeof(struct page_cgroup) * PAGES_PER_SECTION;
+
+		BUG_ON(PageReserved(page));
+		free_pages_exact(addr, table_size);
+	}
+}
+
+void __free_page_cgroup(unsigned long pfn)
+{
+	struct mem_section *ms;
+	struct page_cgroup *base;
+
+	ms = __pfn_to_section(pfn);
+	if (!ms || !ms->page_cgroup)
+		return;
+	base = ms->page_cgroup + pfn;
+	free_page_cgroup(base);
+	ms->page_cgroup = NULL;
+}
+
+int __meminit online_page_cgroup(unsigned long start_pfn,
+			unsigned long nr_pages,
+			int nid)
+{
+	unsigned long start, end, pfn;
+	int fail = 0;
+
+	start = SECTION_ALIGN_DOWN(start_pfn);
+	end = SECTION_ALIGN_UP(start_pfn + nr_pages);
+
+	if (nid == -1) {
+		/*
+		 * In this case, "nid" already exists and contains valid memory.
+		 * "start_pfn" passed to us is a pfn which is an arg for
+		 * online__pages(), and start_pfn should exist.
+		 */
+		nid = pfn_to_nid(start_pfn);
+		VM_BUG_ON(!node_state(nid, N_ONLINE));
+	}
+
+	for (pfn = start; !fail && pfn < end; pfn += PAGES_PER_SECTION) {
+		if (!pfn_present(pfn))
+			continue;
+		fail = init_section_page_cgroup(pfn, nid);
+	}
+	if (!fail)
+		return 0;
+
+	/* rollback */
+	for (pfn = start; pfn < end; pfn += PAGES_PER_SECTION)
+		__free_page_cgroup(pfn);
+
+	return -ENOMEM;
+}
+
+int __meminit offline_page_cgroup(unsigned long start_pfn,
+		unsigned long nr_pages, int nid)
+{
+	unsigned long start, end, pfn;
+
+	start = SECTION_ALIGN_DOWN(start_pfn);
+	end = SECTION_ALIGN_UP(start_pfn + nr_pages);
+
+	for (pfn = start; pfn < end; pfn += PAGES_PER_SECTION)
+		__free_page_cgroup(pfn);
+	return 0;
+
+}
+
+static int __meminit page_cgroup_callback(struct notifier_block *self,
+			       unsigned long action, void *arg)
+{
+	struct memory_notify *mn = arg;
+	int ret = 0;
+
+	switch (action) {
+	case MEM_GOING_ONLINE:
+		ret = online_page_cgroup(mn->start_pfn,
+				   mn->nr_pages, mn->status_change_nid);
+		break;
+	case MEM_OFFLINE:
+		offline_page_cgroup(mn->start_pfn,
+				mn->nr_pages, mn->status_change_nid);
+		break;
+	case MEM_CANCEL_ONLINE:
+		offline_page_cgroup(mn->start_pfn,
+				mn->nr_pages, mn->status_change_nid);
+		break;
+	case MEM_GOING_OFFLINE:
+		break;
+	case MEM_ONLINE:
+	case MEM_CANCEL_OFFLINE:
+		break;
+	}
+
+	return notifier_from_errno(ret);
+}
+
+#endif
+
+void __init page_cgroup_init(void)
+{
+	unsigned long pfn;
+	int nid;
+
+	if (mem_cgroup_disabled() || !cacherecharge)
+		return;
+
+	for_each_node_state(nid, N_MEMORY) {
+		unsigned long start_pfn, end_pfn;
+
+		start_pfn = node_start_pfn(nid);
+		end_pfn = node_end_pfn(nid);
+		/*
+		 * start_pfn and end_pfn may not be aligned to SECTION and the
+		 * page->flags of out of node pages are not initialized.  So we
+		 * scan [start_pfn, the biggest section's pfn < end_pfn) here.
+		 */
+		for (pfn = start_pfn;
+		     pfn < end_pfn;
+		     pfn = ALIGN(pfn + 1, PAGES_PER_SECTION)) {
+
+			if (!pfn_valid(pfn))
+				continue;
+			/*
+			 * Nodes's pfns can be overlapping.
+			 * We know some arch can have a nodes layout such as
+			 * -------------pfn-------------->
+			 * N0 | N1 | N2 | N0 | N1 | N2|....
+			 */
+			if (pfn_to_nid(pfn) != nid)
+				continue;
+			if (init_section_page_cgroup(pfn, nid))
+				goto oom;
+		}
+	}
+	hotplug_memory_notifier(page_cgroup_callback, 0);
+	printk(KERN_INFO "allocated %ld bytes of page_cgroup\n", total_usage);
+	printk(KERN_INFO "please try 'cgroup_disable=memory' option if you "
+			 "don't want memory cgroups\n");
+	return;
+oom:
+	printk(KERN_CRIT "try 'cgroup_disable=memory' boot option\n");
+	panic("Out of memory");
+}
+
+void __meminit pgdat_page_cgroup_init(struct pglist_data *pgdat)
+{
+}
+#endif
+
 /**
  * lock_page_memcg - lock a page->mem_cgroup binding
  * @page: the page
@@ -1737,10 +2068,10 @@ cleanup:
  * This function protects unlocked LRU pages from being moved to
  * another cgroup and stabilizes their page->mem_cgroup binding.
  */
-void lock_page_memcg(struct page *page)
+void __lock_page_memcg(struct page *page, unsigned long *flags)
 {
 	struct mem_cgroup *memcg;
-	unsigned long flags;
+	unsigned long flags1;
 
 	/*
 	 * The RCU lock is held throughout the transaction.  The fast
@@ -1759,9 +2090,9 @@ again:
 	if (atomic_read(&memcg->moving_account) <= 0)
 		return;
 
-	spin_lock_irqsave(&memcg->move_lock, flags);
+	spin_lock_irqsave(&memcg->move_lock, flags1);
 	if (memcg != page->mem_cgroup) {
-		spin_unlock_irqrestore(&memcg->move_lock, flags);
+		spin_unlock_irqrestore(&memcg->move_lock, flags1);
 		goto again;
 	}
 
@@ -1771,9 +2102,23 @@ again:
 	 * the task who has the lock for unlock_page_memcg().
 	 */
 	memcg->move_lock_task = current;
-	memcg->move_lock_flags = flags;
+	memcg->move_lock_flags = flags1;
 
 	return;
+}
+
+void lock_page_memcg(struct page *page, unsigned long *flags)
+{
+	if (mem_cgroup_disabled())
+		return;
+	if (cacherecharge) {
+		struct page_cgroup *pc;
+
+		pc = lookup_page_cgroup(page);
+		spin_lock_irqsave(&pc->lock, *flags);
+	} else {
+		__lock_page_memcg(page, flags);
+	}
 }
 EXPORT_SYMBOL(lock_page_memcg);
 
@@ -1781,7 +2126,8 @@ EXPORT_SYMBOL(lock_page_memcg);
  * unlock_page_memcg - unlock a page->mem_cgroup binding
  * @page: the page
  */
-void unlock_page_memcg(struct page *page)
+
+void __unlock_page_memcg(struct page *page, unsigned long *flags)
 {
 	struct mem_cgroup *memcg = page->mem_cgroup;
 
@@ -1796,6 +2142,21 @@ void unlock_page_memcg(struct page *page)
 
 	rcu_read_unlock();
 }
+
+void unlock_page_memcg(struct page *page, unsigned long *flags)
+{
+	if (mem_cgroup_disabled())
+		return;
+	if (cacherecharge) {
+		struct page_cgroup *pc;
+
+		pc = lookup_page_cgroup(page);
+		spin_unlock_irqrestore(&pc->lock, *flags);
+	} else {
+		__unlock_page_memcg(page, flags);
+	}
+}
+
 EXPORT_SYMBOL(unlock_page_memcg);
 
 /*
@@ -4752,6 +5113,44 @@ static struct page *mc_handle_file_pte(struct vm_area_struct *vma,
 	return page;
 }
 
+void mem_cgroup_move_stat(struct page *page,
+			bool compound,
+			struct mem_cgroup *from,
+			struct mem_cgroup *to)
+{
+	unsigned int nr_pages = compound ? hpage_nr_pages(page) : 1;
+	bool anon = PageAnon(page);
+
+	if (!anon && page_mapped(page)) {
+		__this_cpu_sub(from->stat->count[MEM_CGROUP_STAT_FILE_MAPPED],
+			       nr_pages);
+		__this_cpu_add(to->stat->count[MEM_CGROUP_STAT_FILE_MAPPED],
+			       nr_pages);
+	}
+
+	/*
+	 * move_lock grabbed above and caller set from->moving_account, so
+	 * mem_cgroup_update_page_stat() will serialize updates to PageDirty.
+	 * So mapping should be stable for dirty pages.
+	 */
+	if (!anon && PageDirty(page)) {
+		struct address_space *mapping = page_mapping(page);
+
+		if (mapping_cap_account_dirty(mapping)) {
+			__this_cpu_sub(from->stat->count[MEM_CGROUP_STAT_DIRTY],
+				       nr_pages);
+			__this_cpu_add(to->stat->count[MEM_CGROUP_STAT_DIRTY],
+				       nr_pages);
+		}
+	}
+
+	if (PageWriteback(page)) {
+		__this_cpu_sub(from->stat->count[MEM_CGROUP_STAT_WRITEBACK],
+			       nr_pages);
+		__this_cpu_add(to->stat->count[MEM_CGROUP_STAT_WRITEBACK],
+			       nr_pages);
+	}
+}
 /**
  * mem_cgroup_move_account - move account of the page
  * @page: the page
@@ -4792,38 +5191,11 @@ static int mem_cgroup_move_account(struct page *page,
 
 	anon = PageAnon(page);
 
-	spin_lock_irqsave(&from->move_lock, flags);
-
-	if (!anon && page_mapped(page)) {
-		__this_cpu_sub(from->stat->count[MEM_CGROUP_STAT_FILE_MAPPED],
-			       nr_pages);
-		__this_cpu_add(to->stat->count[MEM_CGROUP_STAT_FILE_MAPPED],
-			       nr_pages);
-	}
-
-	/*
-	 * move_lock grabbed above and caller set from->moving_account, so
-	 * mem_cgroup_update_page_stat() will serialize updates to PageDirty.
-	 * So mapping should be stable for dirty pages.
-	 */
-	if (!anon && PageDirty(page)) {
-		struct address_space *mapping = page_mapping(page);
-
-		if (mapping_cap_account_dirty(mapping)) {
-			__this_cpu_sub(from->stat->count[MEM_CGROUP_STAT_DIRTY],
-				       nr_pages);
-			__this_cpu_add(to->stat->count[MEM_CGROUP_STAT_DIRTY],
-				       nr_pages);
-		}
-	}
-
-	if (PageWriteback(page)) {
-		__this_cpu_sub(from->stat->count[MEM_CGROUP_STAT_WRITEBACK],
-			       nr_pages);
-		__this_cpu_add(to->stat->count[MEM_CGROUP_STAT_WRITEBACK],
-			       nr_pages);
-	}
-
+	if (cacherecharge)
+		lock_page_memcg(page, &flags);
+	else
+		spin_lock_irqsave(&from->move_lock, flags);
+	mem_cgroup_move_stat(page, compound, from, to);
 	/*
 	 * It is safe to change page->mem_cgroup here because the page
 	 * is referenced, charged, and isolated - we can't race with
@@ -4832,7 +5204,10 @@ static int mem_cgroup_move_account(struct page *page,
 
 	/* caller should have done css_get */
 	page->mem_cgroup = to;
-	spin_unlock_irqrestore(&from->move_lock, flags);
+	if (cacherecharge)
+		unlock_page_memcg(page, &flags);
+	else
+		spin_unlock_irqrestore(&from->move_lock, flags);
 
 	ret = 0;
 
@@ -5242,13 +5617,15 @@ static void mem_cgroup_move_charge(void)
 	};
 
 	lru_add_drain_all();
-	/*
-	 * Signal lock_page_memcg() to take the memcg's move_lock
-	 * while we're moving its pages to another memcg. Then wait
-	 * for already started RCU-only updates to finish.
-	 */
-	atomic_inc(&mc.from->moving_account);
-	synchronize_rcu();
+	if (!cacherecharge) {
+	       /*
+		* Signal lock_page_memcg() to take the memcg's move_lock
+		* while we're moving its pages to another memcg. Then wait
+		* for already started RCU-only updates to finish.
+		*/
+		atomic_inc(&mc.from->moving_account);
+		synchronize_rcu();
+	}
 retry:
 	if (unlikely(!down_read_trylock(&mc.mm->mmap_sem))) {
 		/*
@@ -5269,7 +5646,8 @@ retry:
 	walk_page_range(0, mc.mm->highest_vm_end, &mem_cgroup_move_charge_walk);
 
 	up_read(&mc.mm->mmap_sem);
-	atomic_dec(&mc.from->moving_account);
+	if (!cacherecharge)
+		atomic_dec(&mc.from->moving_account);
 }
 
 static void mem_cgroup_move_task(void)
@@ -5685,14 +6063,18 @@ int memcg_cacherecharge;
 
 bool cacherecharge_enabled(void)
 {
-	return memcg_cacherecharge ? true : false;
+	if (mem_cgroup_disabled() || !cacherecharge)
+		return false;
+	if (memcg_cacherecharge)
+		return true;
+	return false;
 }
 
-bool mem_cgroup_is_offline(struct page *page)
+bool mem_cgroup_page_rechargeable(struct page *page)
 {
-	struct mem_cgroup *memcg;
+	struct mem_cgroup *memcg = page->mem_cgroup;
 
-	if (mem_cgroup_disabled())
+	if (mem_cgroup_disabled() || !cacherecharge)
 		return false;
 
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
@@ -5702,84 +6084,81 @@ bool mem_cgroup_is_offline(struct page *page)
 	if (!memcg)
 		return false;
 
-	return !(memcg->css.flags & CSS_ONLINE);
+	if (memcg->css.flags & CSS_ONLINE)
+		return false;
+
+	/*
+	 * These are pages not supported for recharge, we now only
+	 * consider regular file page.
+	 */
+	if (!page->mapping || PageSwapBacked(page) || PageCompound(page))
+		return false;
+
+	return true;
 }
 
 int mem_cgroup_try_charge_many(struct mm_struct *mm, gfp_t gfp_mask,
 		struct mem_cgroup **memcgp, unsigned int nr_pages)
 {
-	struct mem_cgroup *memcg = *memcgp;
+	struct mem_cgroup *memcg;
 	int ret;
 
-	if (mem_cgroup_disabled())
-		return 0;
-	if (!memcg)
-		memcg = get_mem_cgroup_from_mm(mm);
+	memcg = get_mem_cgroup_from_mm(mm);
 
 	ret = try_charge(memcg, gfp_mask, nr_pages);
-	if (!ret && !*memcgp)
+	if (!ret)
 		*memcgp = memcg;
+	css_put(&memcg->css);
 	return ret;
 }
 
-/*
- * Try to recharge regular file page whose previous memcg is offlined.
- * If the page is not a candidate, return 0.
- * When succeed, return 0 and the charged memcg in *memcgp.
- * When out of the memory, return -ENOMEM.
- * When the page is get truncated under us after we charged successfully,
- * cancel the previous charge and return -ENOENT and the charged memcg
- * in *memcgp.
- */
-int mem_cgroup_try_recharge_file_page(struct vm_area_struct *vma,
-				struct mem_cgroup **memcgp,
+int mem_cgroup_recharge_file_page(struct vm_area_struct *vma,
 				struct page *page)
 {
+	struct mem_cgroup *memcg = NULL;
 	struct address_space *mapping;
+	unsigned long flags;
 	int ret;
 
-	if (mem_cgroup_disabled())
-		return 0;
-	if (!page->mapping)
-		return 0;
-	if (PageSwapBacked(page))
-		return 0;
-	if (PageCompound(page))
-		return 0;
-	if (!mem_cgroup_is_offline(page))
+	if (!mem_cgroup_page_rechargeable(page))
 		return 0;
 
-	ret = mem_cgroup_try_charge_many(vma->vm_mm, GFP_ATOMIC, memcgp, 1);
+	ret = mem_cgroup_try_charge_many(vma->vm_mm,
+		GFP_KERNEL & ~__GFP_DIRECT_RECLAIM, &memcg, 1);
 	if (ret) {
 		mapping = page->mapping;
 		/* We could stall in reclaim, release the PG_LOCK */
 		unlock_page(page);
 		ret = mem_cgroup_try_charge_many(vma->vm_mm,
-				GFP_KERNEL, memcgp, 1);
+				GFP_KERNEL, &memcg, 1);
 		if (ret) {
 			put_page(page);
 			return -ENOMEM;
 		}
 		lock_page(page);
-		/* Did it get truncated? */
+		/* Did it get truncated or charged by other cgroups? */
 		if (page->mapping != mapping) {
 			unlock_page(page);
 			put_page(page);
-			cancel_charge(*memcgp, 1);
+			cancel_charge(memcg, 1);
 			return -ENOENT;
+		} else if (page->mem_cgroup->css.flags & CSS_ONLINE) {
+			cancel_charge(memcg, 1);
+			return 0;
 		}
 	}
 
+	lock_page_memcg(page, &flags);
+	mem_cgroup_move_stat(page, false, page->mem_cgroup, memcg);
+
+	/*
+	 * We might unlikely failed to map this page into the page table,
+	 * but it's okay to commit this page to the memcg,
+	 * as long as we don't lose this page.
+	 */
+	mem_cgroup_commit_charge(page, memcg, true, false);
+	unlock_page_memcg(page, &flags);
 	return 0;
-}
-
-void mem_cgroup_cancel_charge_many(struct mem_cgroup *memcg,
-			unsigned int nr_pages)
-{
-	if (mem_cgroup_disabled())
-		return;
-
-	cancel_charge(memcg, nr_pages);
 }
 
 /**
@@ -6571,5 +6950,13 @@ static int __init mem_cgroup_swap_init(void)
 	return 0;
 }
 subsys_initcall(mem_cgroup_swap_init);
+
+static int __init cacherecharge_enable(char *str)
+{
+	cacherecharge = !!simple_strtol(str, NULL, 0);
+
+	return 1;
+}
+__setup("cacherecharge=", cacherecharge_enable);
 
 #endif /* CONFIG_MEMCG_SWAP */

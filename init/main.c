@@ -468,6 +468,7 @@ static void __init mm_init(void)
 	 * page_ext requires contiguous pages,
 	 * bigger than MAX_ORDER unless SPARSEMEM.
 	 */
+	page_cgroup_init_flatmem();
 	page_ext_init_flatmem();
 	mem_init();
 	kmem_cache_init();
@@ -609,6 +610,7 @@ asmlinkage __visible void __init start_kernel(void)
 		initrd_start = 0;
 	}
 #endif
+	page_cgroup_init();
 	page_ext_init();
 	debug_objects_mem_init();
 	kmemleak_init();
