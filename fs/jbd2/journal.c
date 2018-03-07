@@ -214,6 +214,9 @@ loop:
 	if (journal->j_flags & JBD2_UNMOUNT)
 		goto end_loop;
 
+	if (kthread_should_stop())
+		goto end_loop;
+
 	jbd_debug(1, "commit_sequence=%d, commit_request=%d\n",
 		journal->j_commit_sequence, journal->j_commit_request);
 
@@ -284,9 +287,39 @@ end_loop:
 	return 0;
 }
 
+static int jbd2_checkpoint_thread(void *arg)
+{
+	journal_t *journal = arg;
+	DEFINE_WAIT(wait);
+	jbd_debug(1, "jbd2_checkpoint_thread\n");
+	journal->j_checkpoint_task = current;
+
+loop:
+	prepare_to_wait(&journal->j_wait_checkpoint, &wait,
+			TASK_INTERRUPTIBLE);
+	wake_up(&journal->j_wait_done_checkpoint);
+	schedule();
+	finish_wait(&journal->j_wait_checkpoint, &wait);
+	WARN_ON_ONCE(!mutex_is_locked(&journal->j_checkpoint_mutex));
+
+	if (journal->j_flags & JBD2_UNMOUNT)
+		goto end_loop;
+
+	if (mutex_is_locked(&journal->j_checkpoint_mutex))
+		jbd2_log_do_checkpoint(journal);
+
+	goto loop;
+
+end_loop:
+	journal->j_checkpoint_task = NULL;
+	wake_up(&journal->j_wait_done_checkpoint);
+	jbd_debug(1, "jbd2_checkpoint_thread exiting.\n");
+	return 0;
+}
+
 static int jbd2_journal_start_thread(journal_t *journal)
 {
-	struct task_struct *t;
+	struct task_struct *t, *t_ckpt;
 
 	t = kthread_run(kjournald2, journal, "jbd2/%s",
 			journal->j_devname);
@@ -294,6 +327,17 @@ static int jbd2_journal_start_thread(journal_t *journal)
 		return PTR_ERR(t);
 
 	wait_event(journal->j_wait_done_commit, journal->j_task != NULL);
+
+	t_ckpt = kthread_run(jbd2_checkpoint_thread, journal, "jbd2-ckpt/%s",
+			journal->j_devname);
+	if (IS_ERR(t_ckpt)) {
+		kthread_stop(t);
+		return PTR_ERR(t_ckpt);
+	}
+
+	wait_event(journal->j_wait_done_checkpoint,
+		   journal->j_checkpoint_task != NULL);
+
 	return 0;
 }
 
@@ -309,6 +353,14 @@ static void journal_kill_thread(journal_t *journal)
 		write_lock(&journal->j_state_lock);
 	}
 	write_unlock(&journal->j_state_lock);
+
+	while (journal->j_checkpoint_task) {
+		mutex_lock(&journal->j_checkpoint_mutex);
+		wake_up(&journal->j_wait_checkpoint);
+		wait_event(journal->j_wait_done_checkpoint,
+			   journal->j_checkpoint_task == NULL);
+		mutex_unlock(&journal->j_checkpoint_mutex);
+	}
 }
 
 /*
@@ -1119,6 +1171,8 @@ static journal_t *journal_init_common(struct block_device *bdev,
 
 	init_waitqueue_head(&journal->j_wait_transaction_locked);
 	init_waitqueue_head(&journal->j_wait_done_commit);
+	init_waitqueue_head(&journal->j_wait_checkpoint);
+	init_waitqueue_head(&journal->j_wait_done_checkpoint);
 	init_waitqueue_head(&journal->j_wait_commit);
 	init_waitqueue_head(&journal->j_wait_updates);
 	init_waitqueue_head(&journal->j_wait_reserved);
