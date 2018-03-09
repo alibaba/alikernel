@@ -1280,6 +1280,7 @@ struct sock *tcp_v4_syn_recv_sock(const struct sock *sk, struct sk_buff *skb,
 	struct ip_options_rcu *inet_opt;
 
 	if (sk_acceptq_is_full(sk)) {
+	  if (unlikely(sock_net(sk)->ipv4.sysctl_tcp_debug))
 		tcp_listen_warning(sk, skb);
 		goto exit_overflow;
 	}
@@ -2509,6 +2510,7 @@ static int __net_init tcp_sk_init(struct net *net)
 		       sizeof(init_net.ipv4.sysctl_tcp_wmem));
 	}
 	net->ipv4.sysctl_tcp_fastopen = TFO_CLIENT_ENABLE;
+	net->ipv4.sysctl_tcp_debug = 0;
 	spin_lock_init(&net->ipv4.tcp_fastopen_ctx_lock);
 
 	/* Reno is always built in */
