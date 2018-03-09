@@ -296,14 +296,14 @@ static int get_wmark_ratio(struct mem_cgroup *memcg)
 	return atomic_read(&memcg->wmark_ratio);
 }
 
-static int get_low_wmark(struct mem_cgroup *memcg)
+static u64 get_low_wmark(struct mem_cgroup *memcg)
 {
 	struct page_counter *counter = &memcg->memory;
 
 	return counter->low_wmark_limit;
 }
 
-static int get_high_wmark(struct mem_cgroup *memcg)
+static u64 get_high_wmark(struct mem_cgroup *memcg)
 {
 	struct page_counter *counter = &memcg->memory;
 
@@ -1327,11 +1327,11 @@ unsigned long mem_cgroup_get_limit(struct mem_cgroup *memcg)
 
 static void setup_per_memcg_wmarks(struct mem_cgroup *mem)
 {
-	u64 limit;
+	unsigned long limit;
 	int wmark_ratio;
 
 	wmark_ratio = get_wmark_ratio(mem);
-	limit = mem_cgroup_get_limit(mem) * PAGE_SIZE;
+	limit = mem_cgroup_get_limit(mem);
 	if (wmark_ratio == 0) {
 		page_counter_set_low_wmark_limit(&mem->memory, limit);
 		page_counter_set_high_wmark_limit(&mem->memory, limit);
@@ -1339,13 +1339,10 @@ static void setup_per_memcg_wmarks(struct mem_cgroup *mem)
 		u64 low_wmark, high_wmark;
 		u64 tmp;
 
-		if (limit > 10000)
-			tmp = limit / 100 * wmark_ratio;
-		else
-			tmp = wmark_ratio * limit / 100;
+		tmp = (wmark_ratio * limit) / 100;
 
-		low_wmark = tmp;
-		high_wmark = tmp - (tmp >> 8);
+		low_wmark = tmp * PAGE_SIZE;
+		high_wmark = low_wmark - (low_wmark >> 8);
 		page_counter_set_low_wmark_limit(&mem->memory, low_wmark);
 		page_counter_set_high_wmark_limit(&mem->memory, high_wmark);
 	}
@@ -2559,7 +2556,7 @@ static inline int mem_cgroup_move_swap_account(swp_entry_t entry,
 }
 #endif
 
-static DEFINE_MUTEX(memcg_limit_mutex);
+DEFINE_MUTEX(memcg_limit_mutex);
 
 static int mem_cgroup_resize_limit(struct mem_cgroup *memcg,
 				   unsigned long limit)

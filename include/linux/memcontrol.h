@@ -339,6 +339,8 @@ static inline void mem_cgroup_events(struct mem_cgroup *memcg,
 	cgroup_file_notify(&memcg->events_file);
 }
 
+extern struct mutex memcg_limit_mutex;
+
 bool cacherecharge_enabled(void);
 bool mem_cgroup_is_offline(struct page *page);
 bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg);

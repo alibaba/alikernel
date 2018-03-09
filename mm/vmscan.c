@@ -3143,6 +3143,7 @@ static bool prepare_kswapd_sleep(struct kswapd *kswapd_p, int order,
 	pg_data_t *pgdat = kswapd_p->kswapd_pgdat;
 	struct mem_cgroup *memcg = kswapd_p->kswapd_mem;
 
+	/* Always returns true for per memcg kswapd */
 	if (memcg)
 		return true;
 	/*
@@ -3455,17 +3456,13 @@ static void kswapd_try_to_sleep(struct kswapd *kswapd_p, int alloc_order,
  * Per cgroup background reclaim.
  * TODO: Take off the order since memcg always do order 0
  */
-
-
 static unsigned long balance_mem_cgroup_pgdat(struct mem_cgroup *mem_cont,
 						int order)
 {
-	int  nid;
-	int start_node;
-	int priority;
-	bool wmark_ok;
-	int loop;
-	unsigned long total_scanned;
+	int nid;
+	unsigned long lru_pages;
+	unsigned long nr_reclaimed, nr_scanned;
+	long delta;
 	pg_data_t *pgdat;
 	struct scan_control sc = {
 		.gfp_mask = GFP_KERNEL,
@@ -3473,93 +3470,84 @@ static unsigned long balance_mem_cgroup_pgdat(struct mem_cgroup *mem_cont,
 		.may_unmap = 1,
 		.may_swap = 1,
 		.may_writepage = !laptop_mode,
-		.nr_to_reclaim = ULONG_MAX,
 		.reclaim_idx = MAX_NR_ZONES - 1,
 		.target_mem_cgroup = mem_cont,
 		.priority = DEF_PRIORITY,
 	};
 
-loop_again:
-	count_mem_cgroup_vm_events(mem_cont, NULL,
-		MEM_CGROUP_EVENTS_PGOUTRUN, 1);
-	total_scanned = 0;
-	start_node = 0;
+	mutex_lock(&memcg_limit_mutex);
+	delta = mem_cgroup_get_limit(mem_cont) -
+		(mem_cont->memory.high_wmark_limit >> PAGE_SHIFT);
+	mutex_unlock(&memcg_limit_mutex);
+	VM_BUG_ON(delta < 0);
+
+	sc.nr_to_reclaim = max_t(unsigned long, delta, SWAP_CLUSTER_MAX);
 
 	do {
 		bool raise_priority = true;
+		nr_reclaimed = sc.nr_reclaimed;
+		nr_scanned = sc.nr_scanned;
 
-		priority = sc.priority;
-		wmark_ok = false;
-		loop = 0;
-		while (1) {
-			nid = mem_cgroup_select_victim_node(mem_cont);
-			if (loop == 0) {
-				start_node = nid;
-				loop++;
-			} else if (nid == start_node)
-				break;
+		nid = mem_cgroup_select_victim_node(mem_cont);
 
-			pgdat = NODE_DATA(nid);
-			/*
-			 * Do some background aging of the anon list, to give
-			 * pages a chance to be referenced before reclaiming.
-			 * All pages are rotated regardless of classzone as
-			 * this is about consistent aging.
-			 */
-			age_active_anon(pgdat, &sc);
-			/*
-			 * If we're getting trouble reclaiming, start
-			 * doing writepage  even in laptop mode.
-			 */
-			if (sc.priority < DEF_PRIORITY - 2)
-				sc.may_writepage = 1;
+		pgdat = NODE_DATA(nid);
+		/*
+		 * Do some background aging of the anon list, to give
+		 * pages a chance to be referenced before reclaiming.
+		 * All pages are rotated regardless of classzone as
+		 * this is about consistent aging.
+		 */
+		age_active_anon(pgdat, &sc);
+		/*
+		 * If we're getting trouble reclaiming, start
+		 * doing writepage  even in laptop mode.
+		 */
+		if (sc.priority < DEF_PRIORITY - 2)
+			sc.may_writepage = 1;
 
-			if (kswapd_shrink_node(pgdat, &sc))
-				raise_priority = false;
-			total_scanned += sc.nr_scanned;
-			if (mem_cgroup_watermark_ok(mem_cont,
-						CHARGE_WMARK_HIGH)) {
-				wmark_ok = true;
-				goto out;
-			}
-		}
-		if (total_scanned && priority < DEF_PRIORITY - 2)
-			congestion_wait(WRITE, HZ/10);
+		shrink_node_memcg(pgdat, mem_cont, &sc, &lru_pages);
+
+		if (sc.nr_scanned >= sc.nr_to_reclaim)
+			raise_priority = false;
+
+		/* Shrink slab pages proportionally */
+		shrink_slab(sc.gfp_mask, pgdat->node_id, mem_cont,
+			    sc.nr_scanned - nr_scanned, lru_pages);
+
+		/* Record reclaim efficiency */
+		vmpressure(sc.gfp_mask, mem_cont, true,
+			   sc.nr_scanned - nr_scanned,
+			   sc.nr_reclaimed - nr_reclaimed);
+
+		/* Reach high water mark, just exit loop */
+		if (mem_cgroup_watermark_ok(mem_cont,
+					CHARGE_WMARK_HIGH))
+			break;
+
+		count_mem_cgroup_vm_events(mem_cont, NULL,
+				MEM_CGROUP_EVENTS_PGOUTRUN, 1);
+
 		/* Check if kswapd should be suspending */
 		if (try_to_freeze() || kthread_should_stop())
 			break;
 
-		if (sc.nr_reclaimed >= SWAP_CLUSTER_MAX)
-			break;
 		/*
 		 *  Raise priority if scanning rate is too low or there was no
 		 *  progress in reclaiming pages
 		 */
-		if (raise_priority || !sc.nr_reclaimed)
+		nr_reclaimed = sc.nr_reclaimed - nr_reclaimed;
+		if (raise_priority || !nr_reclaimed)
 			sc.priority--;
-
 	} while (sc.priority >= 1);
 
-out:
-	if (!wmark_ok) {
-		cond_resched();
-
-		try_to_freeze();
-		sc.priority = DEF_PRIORITY;
-		goto loop_again;
-	}
-
-	return sc.nr_reclaimed;
+	return sc.order;
 
 }
-
 #else
-
 static unsigned long balance_mem_cgroup_pgdat(struct mem_cgroup *mem_cont,
 						int order)
 {
 	return 0;
-
 }
 #endif
 
@@ -3635,7 +3623,10 @@ kswapd_try_sleep:
 			pgdat->kswapd_order = 0;
 			pgdat->kswapd_classzone_idx = 0;
 		} else {
-
+			/*
+			 * alloc_order and reclaim_order are unused for
+			 * per memcg kswapd
+			 */
 			kswapd_try_to_sleep(kswapd_p, alloc_order,
 					reclaim_order, classzone_idx);
 		}
@@ -3676,7 +3667,7 @@ kswapd_try_sleep:
 			current->memdelay_kswapd_memcg = mem;
 #endif
 			memdelay_enter(&mdflags, false);
-			balance_mem_cgroup_pgdat(mem, 0);
+			reclaim_order = balance_mem_cgroup_pgdat(mem, 0);
 			memdelay_leave(&mdflags);
 		}
 	}
