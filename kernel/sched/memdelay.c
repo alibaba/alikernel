@@ -19,8 +19,9 @@ void memdelay_enqueue_task(struct task_struct *p, int flags)
 	 * if disable, it will add 40ns(1.22%) latency on sched.
 	 * if enable, it will add 120ns(3.63%) latency on sched.
 	 */
-	if (unlikely(!(flags & ENQUEUE_WAKEUP) || p->memdelay_migrate_enqueue)) {
-		p->memdelay_migrate_enqueue = 0;
+	if (unlikely(!(flags & ENQUEUE_WAKEUP) ||
+			p->sched_memdelay_migrate_enqueue)) {
+		p->sched_memdelay_migrate_enqueue = 0;
 		memdelay_add_runnable(p);
 	} else {
 		memdelay_wakeup(p);
@@ -42,8 +43,8 @@ void memdelay_try_to_wake_up(struct task_struct *p)
 
 	rq = __task_rq_lock(p, &rf);
 	memdelay_del_sleeping(p);
+	p->sched_memdelay_migrate_enqueue = 1;
 	__task_rq_unlock(rq, &rf);
-	p->memdelay_migrate_enqueue = 1;
 }
 
 /**

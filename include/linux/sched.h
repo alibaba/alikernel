@@ -1598,6 +1598,12 @@ struct task_struct {
 	unsigned sched_contributes_to_load:1;
 	unsigned sched_migrated:1;
 	unsigned sched_remote_wakeup:1;
+#ifdef CONFIG_MEM_DELAY
+	/* this flag will be changed in try_to_wakeup, not current task.
+	 * can't move to other bit field which has no lock protected.
+	 */
+	unsigned sched_memdelay_migrate_enqueue:1;
+#endif
 	unsigned :0; /* force alignment to the next boundary */
 
 	/* unserialized, strictly 'current' */
@@ -1621,7 +1627,6 @@ struct task_struct {
 #endif
 
 #ifdef CONFIG_MEM_DELAY
-	unsigned memdelay_migrate_enqueue:1;
 	unsigned memdelay_slowpath:1;
 #endif
 	unsigned long atomic_flags; /* Flags needing atomic access. */
