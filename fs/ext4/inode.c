@@ -2646,7 +2646,7 @@ static int ext4_writepages(struct address_space *mapping,
 			   struct writeback_control *wbc)
 {
 	pgoff_t	writeback_index = 0;
-	long nr_to_write = wbc->nr_to_write;
+	long nr_to_write;
 	int range_whole = 0;
 	int cycled = 1;
 	handle_t *handle = NULL;
@@ -2660,6 +2660,8 @@ static int ext4_writepages(struct address_space *mapping,
 
 	percpu_down_read(&sbi->s_journal_flag_rwsem);
 	trace_ext4_writepages(inode, wbc);
+
+	nr_to_write = ext4_ext_limit_writeback(inode, wbc);
 
 	if (dax_mapping(mapping)) {
 		ret = dax_writeback_mapping_range(mapping, inode->i_sb->s_bdev,

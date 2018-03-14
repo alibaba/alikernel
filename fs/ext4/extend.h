@@ -33,6 +33,8 @@ int ext4_handle_ext_mount_opt(struct super_block *sb, char *opt, int token,
 int ext4_register_ext_sysfs(struct super_block *sb);
 void ext4_unregister_ext_sysfs(struct super_block *sb);
 int ext4_ext_update_time(struct inode *inode, struct timespec *tm, int flags);
+long ext4_ext_limit_writeback(struct inode *inode,
+				struct writeback_control *wbc);
 
 #else /* !CONFIG_EXT4_FS_EXTEND */
 
@@ -52,6 +54,12 @@ static inline int ext4_register_ext_sysfs(struct super_block *sb)
 
 static inline void ext4_unregister_ext_sysfs(struct super_block *sb)
 {
+}
+
+static inline long ext4_ext_limit_writeback(struct inode *inode,
+				struct writeback_control *wbc)
+{
+	return wbc->nr_to_write;
 }
 
 #endif /* CONFIG_EXT4_FS_EXTEND */

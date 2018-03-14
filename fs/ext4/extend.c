@@ -8,8 +8,10 @@
  */
 
 #include <linux/module.h>
+#include <linux/writeback.h>
 
 #include "ext4.h"
+#include "xattr.h"
 
 enum {
 	Opt_ext_delay_update_time,
@@ -268,4 +270,54 @@ int ext4_ext_update_time(struct inode *inode, struct timespec *tm, int flags)
 
 update:
 	return generic_update_time(inode, tm, flags);
+}
+
+long ext4_ext_limit_writeback(struct inode *inode,
+				struct writeback_control *wbc)
+{
+	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
+	struct ext4_ext_sb_info *sebi = &sbi->s_ext_sb_info;
+	const char *name = "wbnice";
+	char buf[256];
+	long nice, pages;
+	int size;
+
+	/*
+	 * We have 4MB minimal chunk size, compatible with
+	 * MIN_WRITEBACK_PAGES defined in fs/fs-writeback.c.
+	 */
+	#define EXT4_EXT_MIN_WB_PAGES	(0x400000 / PAGE_SIZE)
+
+	if (!((sebi->s_opt & EXT4_EXT_OPT_WB_NICE) && (sebi->s_wb_enable)))
+		goto out;
+
+	/* No limitation on explicit synchronization */
+	if (wbc->nr_to_write == LONG_MAX)
+		goto out;
+
+	/* Get user.wbnice attribute value size */
+	size = ext4_xattr_get(inode, EXT4_XATTR_INDEX_USER, name, NULL, 0);
+	if (size <= 0 || size >= sizeof(buf))
+		goto out;
+
+	/* Get user.wbnice attribute value */
+	buf[size] = '\0';
+	size = ext4_xattr_get(inode, EXT4_XATTR_INDEX_USER,
+			name, buf, sizeof(buf));
+	nice = simple_strtoul(buf, NULL, 0);
+	if (nice <= 0)
+		goto out;
+	if (nice > 255)
+		nice = 255;
+
+	/*
+	 * Round nice to next power of 2 and square, and calculate writeback
+	 * page number inversely with nice.
+	 */
+	pages = wbc->nr_to_write / roundup_pow_of_two(nice);
+	wbc->nr_to_write = round_down(pages + EXT4_EXT_MIN_WB_PAGES,
+			EXT4_EXT_MIN_WB_PAGES);
+
+out:
+	return wbc->nr_to_write;
 }
