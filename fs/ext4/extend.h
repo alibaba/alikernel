@@ -20,9 +20,11 @@ struct ext4_ext_sb_info {
 	unsigned int    s_opt;
 #define EXT4_EXT_OPT_VALID		(1 << 0)
 #define EXT4_EXT_OPT_DELAY_UPDATE_TIME	(1 << 1)
+#define EXT4_EXT_OPT_WB_NICE		(1 << 2)
 	struct mutex    s_mutex;
 	struct kobject  s_kobj;
 	unsigned long	s_delay_update_time;
+	unsigned int    s_wb_enable;
 };
 
 int ext4_handle_ext_mount_opt(struct super_block *sb, char *opt, int token,

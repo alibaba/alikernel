@@ -13,11 +13,13 @@
 
 enum {
 	Opt_ext_delay_update_time,
+	Opt_ext_wb_nice,
 	Opt_ext_err,
 };
 
 static const match_table_t ext_tokens = {
 	{ Opt_ext_delay_update_time,	"delayupdatetime=%d" },
+	{ Opt_ext_wb_nice,		"wbnice" },
 	{ Opt_ext_err,			NULL },
 };
 
@@ -69,6 +71,10 @@ int ext4_handle_ext_mount_opt(struct super_block *sb, char *opt,
 
 			sebi->s_delay_update_time = val;
 			break;
+		case Opt_ext_wb_nice:
+			sebi->s_opt |= EXT4_EXT_OPT_WB_NICE;
+			sebi->s_wb_enable = 1;
+			break;
 		default:
 			ext4_msg(sb, KERN_WARNING,
 				 "%s: Extended option %s not supported\n",
@@ -111,8 +117,14 @@ EXT4_EXT_ATTR_RW(delay_update_time,
 		 s_delay_update_time,
 		 EXT4_EXT_OPT_DELAY_UPDATE_TIME);
 
+EXT4_EXT_ATTR_RW(wb_enable,
+		struct ext4_ext_sb_info,
+		s_wb_enable,
+		EXT4_EXT_OPT_WB_NICE);
+
 static struct attribute *ext4_ext_attrs[] = {
 	&ext4_ext_attr_delay_update_time.attr,
+	&ext4_ext_attr_wb_enable.attr,
 	NULL
 };
 
