@@ -1280,8 +1280,8 @@ struct sock *tcp_v4_syn_recv_sock(const struct sock *sk, struct sk_buff *skb,
 	struct ip_options_rcu *inet_opt;
 
 	if (sk_acceptq_is_full(sk)) {
-	  if (unlikely(sock_net(sk)->ipv4.sysctl_tcp_debug))
-		tcp_listen_warning(sk, skb);
+		if (unlikely(sock_net(sk)->ipv4.sysctl_tcp_debug))
+			tcp_listen_warning(sk, skb);
 		goto exit_overflow;
 	}
 
