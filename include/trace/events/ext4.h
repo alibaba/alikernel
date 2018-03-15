@@ -407,6 +407,38 @@ TRACE_EVENT(ext4_writepages,
 		  (unsigned long) __entry->writeback_index)
 );
 
+#ifdef CONFIG_EXT4_FS_EXTEND
+TRACE_EVENT(ext4_ext_writepages,
+	TP_PROTO(struct inode *inode, long nr_to_write,
+		struct writeback_control *wbc),
+
+	TP_ARGS(inode, nr_to_write, wbc),
+
+	TP_STRUCT__entry(
+		__field(    dev_t,  dev         )
+		__field(    ino_t,  ino         )
+		__field(    long,   nr_to_write     )
+		__field(    long,   ext_nr_to_write     )
+		__field(       pgoff_t, writeback_index     )
+	),
+
+	TP_fast_assign(
+		__entry->dev        = inode->i_sb->s_dev;
+		__entry->ino        = inode->i_ino;
+		__entry->nr_to_write    = nr_to_write;
+		__entry->ext_nr_to_write    = wbc->nr_to_write;
+		__entry->writeback_index = inode->i_mapping->writeback_index;
+	),
+
+	TP_printk("dev %d,%d ino %lu nr_to_write %ld ext_nr_to_write %ld "
+		"writeback_index %lu",
+		MAJOR(__entry->dev), MINOR(__entry->dev),
+		(unsigned long) __entry->ino, __entry->nr_to_write,
+		__entry->ext_nr_to_write,
+		(unsigned long) __entry->writeback_index)
+	);
+#endif
+
 TRACE_EVENT(ext4_da_write_pages,
 	TP_PROTO(struct inode *inode, pgoff_t first_page,
 		 struct writeback_control *wbc),

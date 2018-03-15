@@ -13,6 +13,8 @@
 #include "ext4.h"
 #include "xattr.h"
 
+#include <trace/events/ext4.h>
+
 enum {
 	Opt_ext_delay_update_time,
 	Opt_ext_wb_nice,
@@ -277,6 +279,7 @@ long ext4_ext_limit_writeback(struct inode *inode,
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 	struct ext4_ext_sb_info *sebi = &sbi->s_ext_sb_info;
+	long nr_to_write = wbc->nr_to_write;
 	const char *name = "wbnice";
 	char buf[256];
 	long nice, pages;
@@ -317,7 +320,7 @@ long ext4_ext_limit_writeback(struct inode *inode,
 	pages = wbc->nr_to_write / roundup_pow_of_two(nice);
 	wbc->nr_to_write = round_down(pages + EXT4_EXT_MIN_WB_PAGES,
 			EXT4_EXT_MIN_WB_PAGES);
-
+	trace_ext4_ext_writepages(inode, nr_to_write, wbc);
 out:
 	return wbc->nr_to_write;
 }
