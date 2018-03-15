@@ -201,7 +201,10 @@ static void write_bdev_super_endio(struct bio *bio)
 {
 	struct cached_dev *dc = bio->bi_private;
 	/* XXX: error checking */
-
+#ifdef CONFIG_BCACHE_BACKING_DEV_FAILOVER
+	if (bio->bi_error && bch_dc_bio_failover(dc, bio) == 0)
+		return;
+#endif /* CONFIG_BCACHE_BACKING_DEV_FAILOVER */
 	closure_put(&dc->sb_write);
 }
 
@@ -2032,6 +2035,98 @@ err:
 	ret = -EINVAL;
 	goto out;
 }
+
+#ifdef CONFIG_BCACHE_BACKING_DEV_FAILOVER
+
+struct bdev_work {
+	struct delayed_work work;
+	struct block_device *bdev;
+};
+static struct bdev_work free_bdev_work;
+
+static void do_work(struct work_struct *work)
+{
+	struct bdev_work *free_work;
+
+	free_work = container_of(work, struct bdev_work, work.work);
+	if (free_work->bdev != NULL)
+		blkdev_put(free_work->bdev, FMODE_READ|FMODE_WRITE|FMODE_EXCL);
+}
+
+int bch_dc_bio_failover(struct cached_dev *dc, struct bio *bio)
+{
+	if (bio->bi_disk == dc->obdev->bd_disk &&
+		bio->bi_partno == dc->obdev->bd_partno && dc->bdev != NULL) {
+		bio_set_dev(bio, dc->bdev);
+		pr_debug("%s: bio error and submit it to substituted bdev\n",
+				__func__);
+		generic_make_request(bio);
+		return 0;
+	}
+	return -ENODEV;
+}
+
+int bch_set_dc_backup_dev(struct cached_dev *dc,
+		const char *bdev_path, size_t size)
+{
+	ssize_t ret;
+	char *path = NULL;
+	const char *err_msg = "cannot allocate memory";
+	struct block_device *nbdev = NULL;
+
+	if (!try_module_get(THIS_MODULE))
+		return -EBUSY;
+
+	path = kstrndup(bdev_path, size, GFP_KERNEL);
+	if (path == NULL)
+		goto err;
+	err_msg = "failed to open device";
+	nbdev = blkdev_get_by_path(strim(path),
+				  FMODE_READ|FMODE_WRITE|FMODE_EXCL,
+				  dc->bdev->bd_holder);
+	if (IS_ERR(nbdev))
+		goto err;
+	err_msg = "failed to set blocksize";
+	if (set_blocksize(nbdev, 4096))
+		goto err_close;
+	nbdev->bd_holder = dc;
+	dc->obdev = dc->bdev;
+	smp_store_mb(dc->bdev, nbdev);
+
+	bd_unlink_disk_holder(dc->obdev, dc->disk.disk);
+	bd_link_disk_holder(dc->bdev, dc->disk.disk);
+	err_msg = "failed to kobject_move";
+	ret = kobject_move(&dc->disk.kobj,
+			&part_to_dev(dc->bdev->bd_part)->kobj);
+	if (ret)
+		goto err_move;
+
+	/*
+	 * The latest bio to old bdev should be timeout after delayed work.
+	 * It should be safe to free old bdev.
+	 */
+	INIT_DELAYED_WORK(&(free_bdev_work.work), do_work);
+	free_bdev_work.bdev = dc->obdev;
+	schedule_delayed_work(&(free_bdev_work.work),
+			bdev_get_queue(dc->obdev)->rq_timeout * 2);
+out:
+	kfree(path);
+	module_put(THIS_MODULE);
+	return ret;
+
+err_move:
+	bd_unlink_disk_holder(dc->bdev, dc->disk.disk);
+	smp_store_mb(dc->bdev, dc->obdev);
+	bd_link_disk_holder(dc->bdev, dc->disk.disk);
+err_close:
+	blkdev_put(nbdev, FMODE_READ|FMODE_WRITE|FMODE_EXCL);
+err:
+	pr_info("error: %s", err_msg);
+	ret = -EINVAL;
+	goto out;
+}
+
+#endif /* CONFIG_BCACHE_BACKING_DEV_FAILOVER */
 
 static int bcache_reboot(struct notifier_block *n, unsigned long code, void *x)
 {

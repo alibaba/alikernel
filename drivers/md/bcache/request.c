@@ -596,9 +596,17 @@ static void request_endio(struct bio *bio)
 
 	if (bio->bi_error) {
 		struct search *s = container_of(cl, struct search, cl);
+#ifdef CONFIG_BCACHE_BACKING_DEV_FAILOVER
+		struct cached_dev *dc = container_of(s->d,
+				struct cached_dev, disk);
+
+		if (bch_dc_bio_failover(dc, bio) == 0)
+			return;
+#else
 		s->iop.error = bio->bi_error;
 		/* Only cache read errors are recoverable */
 		s->recoverable = false;
+#endif /* CONFIG_BCACHE_BACKING_DEV_FAILOVER */
 	}
 
 	bio_put(bio);

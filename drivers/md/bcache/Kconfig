@@ -24,3 +24,12 @@ config BCACHE_CLOSURES_DEBUG
 	Keeps all active closures in a linked list and provides a debugfs
 	interface to list them, which makes it possible to see asynchronous
 	operations that get stuck.
+
+config BCACHE_BACKING_DEV_FAILOVER
+	bool "Bcache backing device failover"
+	depends on BCACHE
+	default n
+	---help---
+	  Replaces a backing device with another backing device and keep
+	  the frontend /dev/bcacheX not changed, this helps to replace a
+	  broken backing device with a workable backing device.

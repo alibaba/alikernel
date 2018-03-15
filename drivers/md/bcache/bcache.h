@@ -291,6 +291,9 @@ struct cached_dev {
 	struct list_head	list;
 	struct bcache_device	disk;
 	struct block_device	*bdev;
+#ifdef CONFIG_BCACHE_BACKING_DEV_FAILOVER
+	struct block_device	*obdev;
+#endif
 
 	struct cache_sb		sb;
 	struct bio		sb_bio;
@@ -925,5 +928,12 @@ void bch_debug_exit(void);
 int bch_debug_init(struct kobject *);
 void bch_request_exit(void);
 int bch_request_init(void);
+
+#ifdef CONFIG_BCACHE_BACKING_DEV_FAILOVER
+/* Replace backing bdev for given cached_dev. */
+int bch_set_dc_backup_dev(struct cached_dev *dc,
+		const char *path, size_t size);
+int bch_dc_bio_failover(struct cached_dev *dc, struct bio *bio);
+#endif /* CONFIG_BCACHE_BACKING_DEV_FAILOVER */
 
 #endif /* _BCACHE_H */

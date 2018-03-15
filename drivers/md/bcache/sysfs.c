@@ -35,6 +35,9 @@ write_attribute(clear_stats);
 write_attribute(trigger_gc);
 write_attribute(prune_cache);
 write_attribute(flash_vol_create);
+#ifdef CONFIG_BCACHE_BACKING_DEV_FAILOVER
+write_attribute(replace_bdev);
+#endif
 
 read_attribute(bucket_size);
 read_attribute(block_size);
@@ -282,6 +285,15 @@ STORE(__cached_dev)
 	if (attr == &sysfs_stop)
 		bcache_device_stop(&dc->disk);
 
+#ifdef CONFIG_BCACHE_BACKING_DEV_FAILOVER
+	if (attr == &sysfs_replace_bdev &&
+		bch_set_dc_backup_dev(dc, buf, size) < 0) {
+		pr_warn("Can't replace backing bdev of %s with new %s\n",
+				dc->disk.name, buf);
+		return -EINVAL;
+	}
+#endif /* CONFIG_BCACHE_BACKING_DEV_FAILOVER */
+
 	return size;
 }
 
@@ -334,6 +346,9 @@ static struct attribute *bch_cached_dev_files[] = {
 	&sysfs_verify,
 	&sysfs_bypass_torture_test,
 #endif
+#ifdef CONFIG_BCACHE_BACKING_DEV_FAILOVER
+	&sysfs_replace_bdev,
+#endif /* CONFIG_BCACHE_BACKING_DEV_FAILOVER */
 	NULL
 };
 KTYPE(bch_cached_dev);

@@ -168,6 +168,15 @@ static void dirty_endio(struct bio *bio)
 	struct keybuf_key *w = bio->bi_private;
 	struct dirty_io *io = w->private;
 
+#ifdef CONFIG_BCACHE_BACKING_DEV_FAILOVER
+	if (bio->bi_error) {
+		struct cached_dev *dc = io->dc;
+
+		if (bch_dc_bio_failover(dc, bio) == 0)
+			return;
+	}
+#endif /* CONFIG_BCACHE_BACKING_DEV_FAILOVER */
+
 	if (bio->bi_error)
 		SET_KEY_DIRTY(&w->key, false);
 
