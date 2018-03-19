@@ -61,6 +61,7 @@
 #include <linux/pfn.h>
 #include <linux/bsearch.h>
 #include <linux/dynamic_debug.h>
+#include <linux/verification.h>
 #include <uapi/linux/module.h>
 #include "module-internal.h"
 
@@ -84,6 +85,9 @@
 
 /* If this is set, the section belongs in the init part of the module */
 #define INIT_OFFSET_MASK (1UL << (BITS_PER_LONG-1))
+
+/* The maximum length of token allowed for disabling enforcement */
+#define MODSIGN_MAX_TOKEN_SIZE (512 * 1024)
 
 /*
  * Mutex protects:
@@ -284,6 +288,11 @@ bool is_module_sig_enforced(void)
 	return sig_enforce;
 }
 EXPORT_SYMBOL(is_module_sig_enforced);
+
+static void set_module_sig_enforce(bool enforce)
+{
+	sig_enforce = enforce;
+}
 
 /* Block module loading/unloading? */
 int modules_disabled = 0;
@@ -2774,8 +2783,136 @@ static int module_sig_check(struct load_info *info, int flags)
 
 	return err;
 }
+
+#ifdef CONFIG_SECURITYFS
+/*
+ * Check the input for disabling enforcement policy.
+ *
+ * Return 0 if intending to disable the policy. Note that the root
+ * privilege cannot simply disable the policy without the
+ * authentication given by a trusted key.
+ */
+static int check_disable_enforce(char *buf, size_t count)
+{
+	u8 *p;
+
+	/*
+	 * In order to disable the enforcement policy, a PKCS#7 signature
+	 * is supplied.
+	 *
+	 * Assuming ASN.1 encoding supplied, the minimal length would be
+	 * 4-byte header plus at least 256-byte payload.
+	 */
+	if (count < 260)
+		return -EINVAL;
+
+	p = (u8 *)buf;
+
+	/* The primitive type must be a sequence */
+	if (p[0] != 0x30 || p[1] != 0x82)
+		return -EINVAL;
+
+	/* Match up the length of the supplied buffer */
+	if (be16_to_cpup((__be16 *)(p + 2)) != count - 4)
+		return -EINVAL;
+
+	return 0;
+}
+
+/*
+ * Disable the enforcement and verify the supplied PKCS#7 signature.
+ * The signed content is simply the character '0'.
+ */
+static int disable_enforce(void *pkcs7, size_t pkcs7_len)
+{
+	char data = '0';
+
+	return verify_pkcs7_signature(&data, sizeof(data), pkcs7, pkcs7_len,
+				      NULL, VERIFYING_UNSPECIFIED_SIGNATURE,
+				      NULL, NULL);
+}
+
+static ssize_t modsign_disable_enforce_write(struct file *filp,
+					     const char __user *ubuf,
+					     size_t count, loff_t *offp)
+{
+	char *buf;
+	ssize_t ret;
+	size_t max_buf_size = MODSIGN_MAX_TOKEN_SIZE;
+
+	if (*offp > 1)
+		return -EFBIG;
+
+	if (count > max_buf_size)
+		return -EFBIG;
+
+	buf = kmalloc(count, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = simple_write_to_buffer(buf, count, offp, ubuf, count);
+	if (ret <= 0) {
+		kfree(buf);
+		return ret;
+	}
+
+	ret = check_disable_enforce(buf, count);
+	if (!ret) {
+		if (is_module_sig_enforced()) {
+			ret = disable_enforce(buf, count);
+			if (!ret) {
+				set_module_sig_enforce(false);
+				pr_notice("Kernel module validity enforcement disabled\n");
+				ret = count;
+			}
+		} else
+			ret = count;
+	}
+
+	kfree(buf);
+
+	return ret;
+}
+
+static const struct file_operations modsign_disable_enforce_ops = {
+	.write = modsign_disable_enforce_write,
+	.llseek = generic_file_llseek,
+};
+
+static int __init securityfs_init(void)
+{
+	struct dentry *modsign_dir;
+	struct dentry *disable_enforce;
+
+	modsign_dir = securityfs_create_dir("modsign", NULL);
+	if (IS_ERR(modsign_dir))
+		return -1;
+
+	disable_enforce = securityfs_create_file("disable_enforce", 0200,
+						 modsign_dir, NULL,
+						 &modsign_disable_enforce_ops);
+	if (IS_ERR(disable_enforce))
+		goto out;
+
+	return 0;
+out:
+	securityfs_remove(modsign_dir);
+
+	return -1;
+}
+#else /* !CONFIG_SECURITYFS */
+static int __init securityfs_init(void)
+{
+	return 0;
+}
+#endif
 #else /* !CONFIG_MODULE_SIG */
 static int module_sig_check(struct load_info *info, int flags)
+{
+	return 0;
+}
+
+static int __init securityfs_init(void)
 {
 	return 0;
 }
@@ -4329,6 +4466,6 @@ static int __init initialize_module(void)
 {
 	proc_modules_init();
 
-	return 0;
+	return securityfs_init();
 }
 module_init(initialize_module);
