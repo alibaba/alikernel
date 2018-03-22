@@ -322,15 +322,9 @@ static void set_wmark_ratio(struct mem_cgroup *memcg, int val)
 static inline void wake_memcg_kswapd(struct mem_cgroup *memcg)
 {
 	wait_queue_head_t *wait;
-	struct cgroup *c;
-	char name_buf[NAME_MAX + 1];
 
-	if (memcg) {
-		c = memcg->css.cgroup;
-		cgroup_name(c, name_buf, NAME_MAX + 1);
-	}
-
-	if (!memcg || !get_wmark_ratio(memcg))
+	if (!memcg || !(memcg->css.flags & CSS_ONLINE)
+		   || !get_wmark_ratio(memcg))
 		return;
 	wait = memcg->kswapd_wait;
 	/*
@@ -6267,7 +6261,9 @@ void mem_cgroup_commit_charge(struct page *page, struct mem_cgroup *memcg,
 	mem_cgroup_charge_statistics(memcg, page, compound, nr_pages);
 	memcg_check_events(memcg, page);
 	if (lrucare && oldmemcg) {
+		/* Currently only cacherecharge code can reach here */
 		WARN_ON(oldmemcg == memcg);
+		WARN_ON(oldmemcg->css.flags & CSS_ONLINE);
 		mem_cgroup_charge_statistics(oldmemcg, page,
 				compound, -nr_pages);
 		memcg_check_events(oldmemcg, page);
