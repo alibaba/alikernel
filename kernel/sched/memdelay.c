@@ -93,7 +93,7 @@ void memdelay_leave(unsigned long *flags)
 {
 	struct rq *rq;
 
-	if (!current->memdelay_enable)
+	if (!current->memdelay_slowpath)
 		return;
 
 	if (*flags)
