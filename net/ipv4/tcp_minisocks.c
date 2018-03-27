@@ -92,7 +92,8 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 	struct tcp_options_received tmp_opt;
 	struct tcp_timewait_sock *tcptw = tcp_twsk((struct sock *)tw);
 	bool paws_reject = false;
-	struct inet_timewait_death_row *tcp_death_row = &sock_net((struct sock*)tw)->ipv4.tcp_death_row;
+	struct net *net = sock_net((struct sock *)tw);
+	struct inet_timewait_death_row *tcp_death_row = &net->ipv4.tcp_death_row;
 
 	tmp_opt.saw_tstamp = 0;
 	if (th->doff > (sizeof(*th) >> 2) && tcptw->tw_ts_recent_stamp) {
@@ -151,7 +152,7 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 		    tcp_tw_remember_stamp(tw))
 			inet_twsk_reschedule(tw, tw->tw_timeout);
 		else
-			inet_twsk_reschedule(tw, TCP_TIMEWAIT_LEN);
+			inet_twsk_reschedule(tw, net->ipv4.sysctl_tcp_tw_timeout);
 		return TCP_TW_ACK;
 	}
 
@@ -188,7 +189,7 @@ kill:
 				return TCP_TW_SUCCESS;
 			}
 		}
-		inet_twsk_reschedule(tw, TCP_TIMEWAIT_LEN);
+		inet_twsk_reschedule(tw, net->ipv4.sysctl_tcp_tw_timeout);
 
 		if (tmp_opt.saw_tstamp) {
 			tcptw->tw_ts_recent	  = tmp_opt.rcv_tsval;
@@ -238,7 +239,7 @@ kill:
 		 * Do not reschedule in the last case.
 		 */
 		if (paws_reject || th->ack)
-			inet_twsk_reschedule(tw, TCP_TIMEWAIT_LEN);
+			inet_twsk_reschedule(tw, net->ipv4.sysctl_tcp_tw_timeout);
 
 		return tcp_timewait_check_oow_rate_limit(
 			tw, skb, LINUX_MIB_TCPACKSKIPPEDTIMEWAIT);
@@ -317,9 +318,9 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 		if (recycle_ok) {
 			tw->tw_timeout = rto;
 		} else {
-			tw->tw_timeout = TCP_TIMEWAIT_LEN;
+			tw->tw_timeout = sock_net(sk)->ipv4.sysctl_tcp_tw_timeout;
 			if (state == TCP_TIME_WAIT)
-				timeo = TCP_TIMEWAIT_LEN;
+				timeo = sock_net(sk)->ipv4.sysctl_tcp_tw_timeout;
 		}
 
 		/* tw_timer is pinned, so we need to make sure BH are disabled

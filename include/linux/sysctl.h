@@ -49,6 +49,8 @@ extern int proc_dointvec_minmax(struct ctl_table *, int,
 				void __user *, size_t *, loff_t *);
 extern int proc_dointvec_jiffies(struct ctl_table *, int,
 				 void __user *, size_t *, loff_t *);
+extern int proc_dointvec_jiffies_minmax(struct ctl_table *, int,
+					void __user *, size_t *, loff_t *);
 extern int proc_dointvec_userhz_jiffies(struct ctl_table *, int,
 					void __user *, size_t *, loff_t *);
 extern int proc_dointvec_ms_jiffies(struct ctl_table *, int,
