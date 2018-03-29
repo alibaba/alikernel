@@ -1181,6 +1181,7 @@ static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
 	tsk->memdelay_background = 0;
 	tsk->memdelay_state = 0;
 	tsk->memdelay_enable = false;
+	tsk->memdelay_account_parent = false;
 	tsk->memdelay_kswapd_memcg = NULL;
 #endif
 

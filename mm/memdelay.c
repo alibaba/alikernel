@@ -20,6 +20,7 @@
 static DEFINE_PER_CPU(struct memdelay_domain_cpu, global_domain_cpus);
 
 static bool memdelay_enable = false;
+static bool memdelay_account_parent;
 
 /* System-level keeping of memory delay statistics */
 struct memdelay_domain memdelay_global_domain = {
@@ -176,8 +177,10 @@ void memdelay_task_change(struct task_struct *task,
 	unsigned long delay = 0;
 	bool should_this_loop_run = task->memdelay_enable;
 
-	if (old == MTS_NONE)
+	if (old == MTS_NONE) {
 		task->memdelay_enable = should_this_loop_run = memdelay_enable;
+		task->memdelay_account_parent = memdelay_account_parent;
+	}
 
 	if (likely(!should_this_loop_run))
 		return;
@@ -206,12 +209,13 @@ void memdelay_task_change(struct task_struct *task,
 		memcg = current->memdelay_kswapd_memcg;
 	else
 		memcg = mem_cgroup_from_task(task);
-	{
+	do {
 		struct memdelay_domain *md;
 		md = memcg_domain(memcg);
 		domain_cpu_update(md, cpu, old, new,
 				delay, task->memdelay_isdirect);
-	}
+	} while (task->memdelay_account_parent &&
+			memcg && (memcg = parent_mem_cgroup(memcg)));
 	rcu_read_unlock();
 };
 
@@ -315,9 +319,15 @@ static ssize_t memdelay_enable_write(struct file *file, const char __user *buf,
 	switch (chr) {
 	case '0':
 		memdelay_enable = false;
+		memdelay_account_parent = false;
 		break;
 	case '1':
 		memdelay_enable = true;
+		memdelay_account_parent = false;
+		break;
+	case '2':
+		memdelay_enable = true;
+		memdelay_account_parent = true;
 		break;
 	default:
 		count = -EINVAL;
