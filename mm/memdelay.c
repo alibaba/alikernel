@@ -338,7 +338,7 @@ static ssize_t memdelay_enable_write(struct file *file, const char __user *buf,
 static int memdelay_enable_show(struct seq_file *m, void *v)
 {
 
-	seq_printf(m, "%d\n", memdelay_enable);
+	seq_printf(m, "%d\n", memdelay_enable + memdelay_account_parent);
 	return 0;
 }
 
