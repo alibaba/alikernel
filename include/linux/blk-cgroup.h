@@ -345,10 +345,33 @@ static inline struct blkcg *cpd_to_blkcg(struct blkcg_policy_data *cpd)
  * @buflen: target buffer length
  *
  * Format the path of the cgroup of @blkg into @buf.
+ *
+ * Here we trim the cgroup name to 12 characters to avoid missing
+ * information when the cgroup name is too long.
+ *
+ * Note that currently blkg_path() is only used for tracing, so it's safe.
+ * If anyone wants to use for other purpose, please be careful of this
+ * behavior.
  */
 static inline int blkg_path(struct blkcg_gq *blkg, char *buf, int buflen)
 {
-	return cgroup_path(blkg->blkcg->css.cgroup, buf, buflen);
+	int ret;
+	char *p;
+	unsigned int len;
+
+#define TRIM_CGROUP_NAME_LEN 12
+	ret = cgroup_path(blkg->blkcg->css.cgroup, buf, buflen);
+	if (ret < 0)
+		return ret;
+
+	p = strrchr(buf, '/');
+	if (p) {
+		len = (p - buf) / sizeof(char);
+		if (len + 1 + TRIM_CGROUP_NAME_LEN + 1 < buflen)
+			p[TRIM_CGROUP_NAME_LEN + 1] = '\0';
+	}
+
+	return ret;
 }
 
 /**
