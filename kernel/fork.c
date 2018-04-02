@@ -901,6 +901,18 @@ void mmput(struct mm_struct *mm)
 }
 EXPORT_SYMBOL_GPL(mmput);
 
+
+/*
+ * reserve vma with VM_RESERVE_ON_EXEC flag
+ */
+void reserve_vma(struct mm_struct *old_mm, struct mm_struct *mm)
+{
+	bool dontcow = test_bit(MMF_VM_RESERVE_DONTCOW, &old_mm->flags);
+
+	might_sleep();
+	set_reserve_vma(old_mm, mm, dontcow);
+}
+
 #ifdef CONFIG_MMU
 static void mmput_async_fn(struct work_struct *work)
 {

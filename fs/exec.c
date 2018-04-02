@@ -1036,7 +1036,15 @@ static int exec_mmap(struct mm_struct *mm)
 			up_read(&old_mm->mmap_sem);
 			return -EINTR;
 		}
+
+		if (test_bit(MMF_VM_RESERVE_DONTCOW, &old_mm->flags) ||
+			test_bit(MMF_VM_RESERVE_COW, &old_mm->flags)) {
+			up_read(&old_mm->mmap_sem);
+			reserve_vma(old_mm, mm);
+			down_read(&old_mm->mmap_sem);
+		}
 	}
+
 	task_lock(tsk);
 	active_mm = tsk->active_mm;
 	tsk->mm = mm;

@@ -531,6 +531,8 @@ static inline int get_dumpable(struct mm_struct *mm)
 #define MMF_UNSTABLE		22	/* mm is unstable for copy_from_user */
 #define MMF_HUGE_ZERO_PAGE	23      /* mm has ever used the global huge zero page */
 
+#define MMF_VM_RESERVE_DONTCOW	27	/* reserve mem on exec */
+#define MMF_VM_RESERVE_COW	28	/* reserve mem on fork exec */
 #define MMF_INIT_MASK		(MMF_DUMPABLE_MASK | MMF_DUMP_FILTER_MASK)
 
 struct sighand_struct {
@@ -2990,6 +2992,8 @@ static inline bool mmget_not_zero(struct mm_struct *mm)
 
 /* mmput gets rid of the mappings and all user-space */
 extern void mmput(struct mm_struct *);
+/* copy map-reserved-on-exec vma from old_mm to new mm */
+extern void reserve_vma(struct mm_struct *old_mm, struct mm_struct *mm);
 #ifdef CONFIG_MMU
 /* same as above but performs the slow path from the async context. Can
  * be called from the atomic context as well

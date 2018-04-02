@@ -35,6 +35,7 @@
 #include <linux/mmdebug.h>
 #include <linux/perf_event.h>
 #include <linux/audit.h>
+#include <linux/ksm.h>
 #include <linux/khugepaged.h>
 #include <linux/uprobes.h>
 #include <linux/rbtree_augmented.h>
@@ -1108,13 +1109,20 @@ struct vm_area_struct *vma_merge(struct mm_struct *mm,
 	 * We later require that vma->vm_flags == vm_flags,
 	 * so this tests vma->vm_flags & VM_SPECIAL, too.
 	 */
-	if (vm_flags & VM_SPECIAL)
+	if ((vm_flags & VM_SPECIAL) || (vm_flags & VM_RESERVE_ON_EXEC))
 		return NULL;
 
 	if (prev)
 		next = prev->vm_next;
 	else
 		next = mm->mmap;
+
+	if (prev && (prev->vm_flags & VM_RESERVE_ON_EXEC))
+		return NULL;
+
+	if (next && (next->vm_flags & VM_RESERVE_ON_EXEC))
+		return NULL;
+
 	area = next;
 	if (area && area->vm_end == end)		/* cases 6, 7, 8 */
 		next = next->vm_next;
@@ -1459,6 +1467,15 @@ unsigned long do_mmap(struct file *file, unsigned long addr,
 		/* hugetlb applies strict overcommit unless MAP_NORESERVE */
 		if (file && is_file_hugepages(file))
 			vm_flags |= VM_NORESERVE;
+	}
+
+	/* for faster map-reserved-on-exec vma check */
+	if (flags & MAP_RESERVE_ON_EXEC) {
+		vm_flags |= VM_RESERVE_ON_EXEC;
+		set_bit(MMF_VM_RESERVE_DONTCOW, &mm->flags);
+	} else if (flags & MAP_RESERVE_ON_FORK_EXEC) {
+		vm_flags |= VM_RESERVE_ON_EXEC;
+		set_bit(MMF_VM_RESERVE_COW, &mm->flags);
 	}
 
 	addr = mmap_region(file, addr, len, vm_flags, pgoff);
@@ -2990,6 +3007,147 @@ void exit_mmap(struct mm_struct *mm)
 		vma = remove_vma(vma);
 	}
 	vm_unacct_memory(nr_accounted);
+}
+
+/* for insert mmap reserved vma */
+static int insert_reserve_vm_struct(struct mm_struct *mm,
+				    struct vm_area_struct *vma)
+{
+	struct vm_area_struct *prev;
+	struct rb_node **rb_link, *rb_parent;
+
+	if (find_vma_links(mm, vma->vm_start, vma->vm_end,
+			   &prev, &rb_link, &rb_parent)) {
+		printk("kvm-err: find_vma_links failed.\n");
+		return -ENOMEM;
+	}
+
+	vma_link(mm, vma, prev, rb_link, rb_parent);
+	return 0;
+}
+
+/* for dup vma most brought from dup_mmap */
+#define vma_set_policy(vma, pol) ((vma)->vm_policy = (pol))
+static int dup_vm_area(struct vm_area_struct *mpnt, struct mm_struct *old_mm,
+		       struct mm_struct *mm, bool dont_cow)
+{
+	struct file *file;
+	struct vm_area_struct *tmp;
+	struct mempolicy *pol;
+	int ret = 0;
+
+	tmp = kmem_cache_alloc(vm_area_cachep, GFP_KERNEL);
+	if (!tmp) {
+		printk("kvm-err: dup_vm_area: alloc vm_area_cachep failed.\n");
+		return -ENOMEM;
+	}
+
+	*tmp = *mpnt;
+	INIT_LIST_HEAD(&tmp->anon_vma_chain);
+	pol = mpol_dup(vma_policy(mpnt));
+	if (IS_ERR(pol)) {
+		ret = PTR_ERR(pol);
+		goto fail_nomem_policy;
+	}
+	vma_set_policy(tmp, pol);
+	tmp->vm_mm = mm;
+	if (anon_vma_fork(tmp, mpnt)) {
+		printk("kvm-err: dup_vm_area: anon_vma_fork failed.\n");
+		ret = -ENOMEM;
+		goto cleanup;
+	}
+	tmp->vm_flags &= ~(VM_LOCKED|VM_UFFD_MISSING|VM_UFFD_WP);
+	tmp->vm_next = tmp->vm_prev = NULL;
+	tmp->vm_userfaultfd_ctx = NULL_VM_UFFD_CTX;
+	file = tmp->vm_file;
+	if (file)
+		get_file(file);
+
+	if (is_vm_hugetlb_page(tmp))
+		reset_vma_resv_huge_pages(tmp);
+
+	if (insert_reserve_vm_struct(mm, tmp) < 0) {
+		printk(KERN_ERR "kvm-log: in dup_vm_area; insert_reserve_vm_struct failed\n");
+		ret = -ENOMEM;
+		goto cleanup;
+	}
+
+	if (dont_cow)
+		mpnt->vm_flags |= VM_RESERVE_DONTCOW;
+	else
+		printk(KERN_INFO "kvm-log: reverve mm with COW\n");
+
+	ret = copy_page_range(mm, old_mm, mpnt);
+	if (dont_cow)
+		mpnt->vm_flags &= ~VM_RESERVE_DONTCOW;
+
+	if (tmp->vm_ops && tmp->vm_ops->open)
+		tmp->vm_ops->open(tmp);
+
+	if (ret) {
+		printk(KERN_ERR "kvm-log: in dup_vm_area; copy_page_range failed %d\n", ret);
+		goto cleanup;
+	}
+
+	return 0;
+cleanup:
+	mpol_put(pol);
+fail_nomem_policy:
+	kmem_cache_free(vm_area_cachep, tmp);
+	return ret;
+}
+
+void set_reserve_vma(struct mm_struct *old_mm, struct mm_struct *mm, bool dont_cow)
+{
+	struct vm_area_struct *vma;
+	int ret = 0;
+
+	uprobe_start_dup_mmap();
+	down_write(&old_mm->mmap_sem);
+	flush_cache_dup_mm(old_mm);
+	uprobe_dup_mmap(old_mm, mm);
+	/*
+	 * Not linked in yet - no deadlock potential:
+	 */
+	down_write_nested(&mm->mmap_sem, SINGLE_DEPTH_NESTING);
+
+	ret = ksm_fork(mm, old_mm);
+	if (ret)
+		goto out;
+	ret = khugepaged_fork(mm, old_mm);
+	if (ret)
+		goto out;
+
+	if (test_bit(MMF_VM_RESERVE_DONTCOW, &old_mm->flags))
+		set_bit(MMF_VM_RESERVE_DONTCOW, &mm->flags);
+
+	if (test_bit(MMF_VM_RESERVE_COW, &old_mm->flags))
+		set_bit(MMF_VM_RESERVE_COW, &mm->flags);
+
+	vma = old_mm->mmap;
+	while (vma) {
+		if (vma->vm_flags & VM_RESERVE_ON_EXEC) {
+			printk(KERN_INFO
+					"kvm-log: in srv, find VROEXEC s 0x%lx, e 0x%lx\n",
+					vma->vm_start, vma->vm_end);
+
+			ret = dup_vm_area(vma, old_mm, mm, dont_cow);
+			if (ret < 0) {
+				printk(KERN_ERR
+						"kvm-log: dup_vm_area failed, ret %d, "
+						"s 0x%lx, e 0x%lx\n",
+						ret, vma->vm_start, vma->vm_end);
+				break;
+			}
+		}
+		vma = vma->vm_next;
+	}
+
+out:
+	up_write(&mm->mmap_sem);
+	flush_tlb_mm(old_mm);
+	up_write(&old_mm->mmap_sem);
+	uprobe_end_dup_mmap();
 }
 
 /* Insert vm structure into process list sorted by address

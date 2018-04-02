@@ -235,7 +235,7 @@ static inline unsigned int page_order(struct page *page)
 
 static inline bool is_cow_mapping(vm_flags_t flags)
 {
-	return (flags & (VM_SHARED | VM_MAYWRITE)) == VM_MAYWRITE;
+	return (flags & (VM_RESERVE_DONTCOW | VM_SHARED | VM_MAYWRITE)) == VM_MAYWRITE;
 }
 
 /*

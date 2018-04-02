@@ -665,6 +665,20 @@ static unsigned long randomize_stack_top(unsigned long stack_top)
 #endif
 }
 
+static unsigned long elf_get_image_size(struct elf_phdr *elf_phdata, int e_phnum)
+{
+	struct elf_phdr *elf_ppnt;
+	unsigned long end = 0;
+	int i;
+
+	for (i = 0, elf_ppnt = elf_phdata; i < e_phnum; i++, elf_ppnt++) {
+		if (elf_ppnt->p_type == PT_LOAD)
+			end = elf_ppnt->p_vaddr + elf_ppnt->p_memsz;
+	}
+
+	return end;
+}
+
 static int load_elf_binary(struct linux_binprm *bprm)
 {
 	struct file *interpreter = NULL; /* to shut gcc up */
@@ -971,6 +985,13 @@ static int load_elf_binary(struct linux_binprm *bprm)
 				retval = -EINVAL;
 				goto out_free_dentry;
 			}
+		}
+
+		total_size = 0;
+		if (!load_addr_set && ((test_bit(MMF_VM_RESERVE_DONTCOW, &current->mm->flags)) ||
+				test_bit(MMF_VM_RESERVE_COW, &current->mm->flags))) {
+			total_size = elf_get_image_size(elf_phdata, loc->elf_ex.e_phnum);
+			printk(KERN_INFO "kvm-log: vm reserve on exec image total_size 0x%lx\n", total_size);
 		}
 
 		error = elf_map(bprm->file, load_bias + vaddr, elf_ppnt,

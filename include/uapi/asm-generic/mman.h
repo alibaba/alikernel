@@ -13,6 +13,8 @@
 #define MAP_STACK	0x20000		/* give out an address that is best suited for process/thread stacks */
 #define MAP_HUGETLB	0x40000		/* create a huge page mapping */
 
+#define MAP_RESERVE_ON_EXEC	0x400000 /* map reserve on exec used for qemu update */
+#define MAP_RESERVE_ON_FORK_EXEC	0x800000 /* map reserve used for vmfork */
 /* Bits [26:31] are reserved, see mman-common.h for MAP_HUGETLB usage */
 
 #define MCL_CURRENT	1		/* lock all current mappings */
