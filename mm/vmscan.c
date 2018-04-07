@@ -3663,9 +3663,7 @@ kswapd_try_sleep:
 			alloc_order = reclaim_order = pgdat->kswapd_order;
 			classzone_idx = pgdat->kswapd_classzone_idx;
 		} else {
-#ifdef CONFIG_MEM_DELAY
-			current->memdelay_kswapd_memcg = mem;
-#endif
+			memdelay_memcg_attach_kswapd(current, mem);
 			memdelay_enter(&mdflags, false);
 			reclaim_order = balance_mem_cgroup_pgdat(mem, 0);
 			memdelay_leave(&mdflags);

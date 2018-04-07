@@ -115,6 +115,33 @@ void memdelay_leave(unsigned long *flags)
 	local_irq_enable();
 }
 
+void memdelay_memcg_attach_kswapd(struct task_struct *task,
+		struct mem_cgroup *mem)
+{
+	struct rq_flags rf;
+	struct rq *rq;
+
+	/*
+	 * Return directly if per memcg kswapd has been initialized properly
+	 * for memdely.
+	 */
+	if (task->memdelay_kswapd_memcg == mem)
+		return;
+
+	rq = task_rq_lock(task, &rf);
+
+	/*
+	 * Only for per memcg kswapd first run.
+	 * kswapd accounts it's delay to root memcg, change target memcg here
+	 * remove statistics from root memcg, and account it to target memcg
+	 */
+	memdelay_task_change(task, MTS_RUNNABLE, MTS_NONE);
+	task->memdelay_kswapd_memcg = mem;
+	memdelay_task_change(task, MTS_NONE, MTS_RUNNABLE);
+
+	task_rq_unlock(rq, task, &rf);
+}
+
 #ifdef CONFIG_CGROUPS
 /**
  * cgroup_move_task - move task to a different cgroup

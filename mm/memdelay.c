@@ -205,8 +205,8 @@ void memdelay_task_change(struct task_struct *task,
 
 	/* Account domain state changes */
 	rcu_read_lock();
-	if (unlikely(current->memdelay_kswapd_memcg))
-		memcg = current->memdelay_kswapd_memcg;
+	if (unlikely(task->memdelay_kswapd_memcg))
+		memcg = task->memdelay_kswapd_memcg;
 	else
 		memcg = mem_cgroup_from_task(task);
 	do {

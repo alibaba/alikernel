@@ -83,6 +83,8 @@ void memdelay_leave(unsigned long *flags);
 void memdelay_enqueue_task(struct task_struct *p, int flags);
 void memdelay_dequeue_task(struct task_struct *p, int flags);
 void memdelay_try_to_wake_up(struct task_struct *p);
+void memdelay_memcg_attach_kswapd(struct task_struct *task,
+		struct mem_cgroup *mem);
 
 /**
  * memdelay_schedule - note a context switch
@@ -245,6 +247,11 @@ static inline void memdelay_del_sleeping(struct task_struct *task)
 }
 
 static inline void memdelay_add_sleeping(struct task_struct *task)
+{
+}
+
+static inline void memdelay_memcg_attach_kswapd(struct task_struct *task,
+			struct mem_cgroup *mem)
 {
 }
 
