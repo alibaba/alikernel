@@ -155,8 +155,12 @@ static inline void memdelay_del_add(struct task_struct *task,
 {
 	int state;
 
+	/*
+	 * dequeue and enqueue running task which is memdelay_entered,
+	 * the state should be MTS_DELAYED_ACTIVE.
+	 */
 	if (task->memdelay_slowpath)
-		state = MTS_DELAYED;
+		state = MTS_DELAYED + task_curr(task);
 	else if (runnable)
 		state = MTS_RUNNABLE;
 	else if (task->in_iowait)

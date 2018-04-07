@@ -59,9 +59,6 @@ void memdelay_enter(unsigned long *flags, bool isdirect)
 {
 	struct rq *rq;
 
-	if (!current->memdelay_enable)
-		return;
-
 	*flags = current->memdelay_slowpath;
 	if (*flags)
 		return;
@@ -92,9 +89,6 @@ void memdelay_enter(unsigned long *flags, bool isdirect)
 void memdelay_leave(unsigned long *flags)
 {
 	struct rq *rq;
-
-	if (!current->memdelay_slowpath)
-		return;
 
 	if (*flags)
 		return;
@@ -164,10 +158,6 @@ void cgroup_move_task(struct task_struct *task,
 	struct rq *rq;
 	int state;
 
-	if (!task->memdelay_enable) {
-		rcu_assign_pointer(task->cgroups, to);
-		return;
-	}
 	/* fork new process, the from is null */
 	if (likely(!from)) {
 		rcu_assign_pointer(task->cgroups, to);
@@ -176,7 +166,10 @@ void cgroup_move_task(struct task_struct *task,
 
 	rq = task_rq_lock(task, &rf);
 
-	if (task->memdelay_slowpath)
+	/* in remote wakeup, the delete sleep, add runnable is not atomic*/
+	if (task->sched_memdelay_migrate_enqueue)
+		state = MTS_NONE;
+	else if (task->memdelay_slowpath)
 		state = MTS_DELAYED + task_current(rq, task);
 	else if (task_on_rq_queued(task))
 		state = MTS_RUNNABLE;

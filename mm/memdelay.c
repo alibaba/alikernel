@@ -187,8 +187,8 @@ void memdelay_task_change(struct task_struct *task,
 
 	cpu = task_cpu(task);
 	WARN_ONCE(task->memdelay_state != old,
-		  "cpu=%d task=%p state=%d (in_iowait=%d PF_MEMDELAYED=%d) old=%d new=%d\n",
-		  cpu, task, task->memdelay_state, task->in_iowait,
+		  "cpu=%d task pid=%d state=%d (in_iowait=%d PF_MEMDELAYED=%d) old=%d new=%d\n",
+		  cpu, task->pid, task->memdelay_state, task->in_iowait,
 		  !!(task->memdelay_slowpath), old, new);
 	task->memdelay_state = new;
 
