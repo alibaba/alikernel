@@ -3877,6 +3877,8 @@ void kswapd_stop(int nid, struct mem_cgroup *mem)
 							kswapd_wait);
 		kswapd_thr = kswapd_p->kswapd_task;
 		kswapd_p->kswapd_task = NULL;
+		if (mem)
+			mem_cgroup_clear_kswapd(mem);
 	}
 	spin_unlock(&kswapds_spinlock);
 	if (kswapd_thr)

@@ -920,6 +920,10 @@ static inline void cgroup_mem_sw_info(struct sysinfo *val,
 {
 }
 
+static inline void mem_cgroup_clear_kswapd(struct mem_cgroup *memcg)
+{
+}
+
 static inline void mem_cgroup_oom_enable(void)
 {
 }
