@@ -10,6 +10,8 @@
 #ifndef _EXT4_EXTEND
 #define _EXT4_EXTEND
 
+#include <linux/writeback.h>
+
 #ifdef CONFIG_EXT4_FS_EXTEND
 
 #define EXT4_EXT_DEFAULT_DELAY_UPDATE_TIME	300000	/* 5 minutes */
