@@ -269,7 +269,7 @@ static bool __free_object(struct debug_obj *obj)
  */
 static void free_object(struct debug_obj *obj)
 {
-	if (__free_object(obj))
+	if (__free_object(obj) && keventd_up())
 		schedule_work(&debug_obj_work);
 }
 
