@@ -349,6 +349,7 @@ extern struct mutex memcg_limit_mutex;
 bool mem_cgroup_low(struct mem_cgroup *root, struct mem_cgroup *memcg);
 
 /* cacherecharege */
+extern bool cacherecharge;
 bool cacherecharge_enabled(void);
 bool mem_cgroup_page_rechargeable(struct page *page);
 int mem_cgroup_recharge_file_page(struct vm_area_struct *vma,
@@ -640,7 +641,8 @@ void unlock_page_memcg(struct page *page, unsigned long *flags);
 static inline void mem_cgroup_update_page_stat(struct page *page,
 				 enum mem_cgroup_stat_index idx, int val)
 {
-	VM_BUG_ON(!PageLocked(page));
+	VM_BUG_ON(!cacherecharge &&
+		!(rcu_read_lock_held() || PageLocked(page)));
 
 	if (page->mem_cgroup)
 		this_cpu_add(page->mem_cgroup->stat->count[idx], val);

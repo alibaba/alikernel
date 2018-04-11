@@ -97,7 +97,7 @@ int do_swap_account __read_mostly;
 #define do_swap_account		0
 #endif
 
-static bool cacherecharge;
+bool cacherecharge;
 
 /* Whether legacy memory+swap accounting is active */
 static bool do_memsw_account(void)
