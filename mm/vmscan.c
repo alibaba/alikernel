@@ -3826,8 +3826,7 @@ int kswapd_run(int nid, struct mem_cgroup *mem)
 #ifdef CONFIG_MEMCG
 		mem_cgroup_init_kswapd(mem, kswapd_p);
 		cgroup_name(mem->css.cgroup, memcg_name, TASK_COMM_LEN);
-		strncpy(name, "memcg_", TASK_COMM_LEN);
-		strncat(name, memcg_name, TASK_COMM_LEN);
+		snprintf(name, sizeof(name), "memcg_%s", memcg_name);
 #endif
 	}
 
