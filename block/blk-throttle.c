@@ -1474,13 +1474,7 @@ bool blk_throtl_bio(struct request_queue *q, struct blkcg_gq *blkg,
 out_unlock:
 	spin_unlock_irq(q->queue_lock);
 out:
-	/*
-	 * As multiple blk-throtls may stack in the same issue path, we
-	 * don't want bios to leave with the flag set.  Clear the flag if
-	 * being issued.
-	 */
-	if (!throttled)
-		bio_clear_flag(bio, BIO_THROTTLED);
+	bio_clear_flag(bio, BIO_THROTTLED);
 	return throttled;
 }
 

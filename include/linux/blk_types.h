@@ -27,8 +27,6 @@ typedef void (bio_end_io_t) (struct bio *);
 struct bio {
 	struct bio		*bi_next;	/* request queue link */
 	struct gendisk		*bi_disk;
-	u8			bi_partno;
-	int			bi_error;
 	unsigned int		bi_opf;		/* bottom bits req flags,
 						 * top bits REQ_OP. Use
 						 * accessors.
@@ -36,7 +34,8 @@ struct bio {
 	unsigned short		bi_flags;	/* status, command, etc */
 	unsigned short		bi_ioprio;
 
-	struct bvec_iter	bi_iter;
+	int			bi_error;
+	u8			bi_partno;
 
 	/* Number of segments in this BIO after
 	 * physical address coalescing is performed.
@@ -50,8 +49,9 @@ struct bio {
 	unsigned int		bi_seg_front_size;
 	unsigned int		bi_seg_back_size;
 
-	atomic_t		__bi_remaining;
+	struct bvec_iter	bi_iter;
 
+	atomic_t		__bi_remaining;
 	bio_end_io_t		*bi_end_io;
 
 	void			*bi_private;
