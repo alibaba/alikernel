@@ -1012,6 +1012,34 @@ static void invalidate_reclaim_iterators(struct mem_cgroup *dead_memcg)
 	     iter != NULL;				\
 	     iter = mem_cgroup_iter(NULL, iter, NULL))
 
+static inline struct mem_cgroup *mem_cgroup_from_lruvec(struct lruvec *lruvec)
+{
+	struct mem_cgroup_per_node *pn;
+
+	pn = container_of(lruvec, struct mem_cgroup_per_node, lruvec);
+
+	return pn->memcg;
+}
+
+struct mem_cgroup *mem_cgroup_top_ancestor(struct mem_cgroup *root,
+				struct lruvec *lruvec)
+{
+	struct mem_cgroup *memcg;
+	struct cgroup_subsys_state *css, *root_css;
+
+	memcg = mem_cgroup_from_lruvec(lruvec);
+	if (memcg == root)
+		return NULL;
+
+	root_css = &root->css;
+	css = &memcg->css;
+	while (css->parent != root_css)
+		css = css->parent;
+
+	memcg = mem_cgroup_from_css(css);
+	return memcg;
+}
+
 /**
  * mem_cgroup_scan_tasks - iterate over tasks of a memory cgroup hierarchy
  * @memcg: hierarchy root
