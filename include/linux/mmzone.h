@@ -1116,7 +1116,6 @@ struct mem_section {
 	unsigned long *pageblock_flags;
 #ifdef CONFIG_MEMCG
 	struct page_cgroup *page_cgroup;
-	unsigned long pad;
 #endif
 #ifdef CONFIG_PAGE_EXTENSION
 	/*
@@ -1124,13 +1123,12 @@ struct mem_section {
 	 * section. (see page_ext.h about this.)
 	 */
 	struct page_ext *page_ext;
-	unsigned long pad;
 #endif
 	/*
 	 * WARNING: mem_section must be a power-of-2 in size for the
 	 * calculation and use of SECTION_ROOT_MASK to make sense.
 	 */
-};
+} __attribute__((aligned(16)));
 
 #ifdef CONFIG_SPARSEMEM_EXTREME
 #define SECTIONS_PER_ROOT       (PAGE_SIZE / sizeof (struct mem_section))
