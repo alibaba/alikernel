@@ -76,13 +76,17 @@ enum mem_cgroup_events_index {
 	MEM_CGROUP_EVENTS_PGPGOUT,	/* # of pages paged out */
 	MEM_CGROUP_EVENTS_PGFAULT,	/* # of page-faults */
 	MEM_CGROUP_EVENTS_PGMAJFAULT,	/* # of major page-faults */
+	MEM_CGROUP_EVENTS_PGOUTRUN, /* # of triggers of background reclaim */
+	MEM_CGROUP_EVENTS_ALLOCSTALL, /* # of triggers of direct reclaim */
 	MEM_CGROUP_EVENTS_KSWAPD_STEAL, /* # of pages reclaimed from kswapd */
 	MEM_CGROUP_EVENTS_PG_PGSTEAL, /* # of pages reclaimed from ttfp */
 	MEM_CGROUP_EVENTS_KSWAPD_PGSCAN, /* # of pages scanned from kswapd */
 	MEM_CGROUP_EVENTS_PG_PGSCAN, /* # of pages scanned from ttfp */
 	MEM_CGROUP_EVENTS_PGREFILL, /* # of pages scanned on active list */
-	MEM_CGROUP_EVENTS_PGOUTRUN, /* # of triggers of background reclaim */
-	MEM_CGROUP_EVENTS_ALLOCSTALL, /* # of triggers of direct reclaim */
+	/* reclaim triggered by parent cgroup */
+	MEM_CGROUP_EVENTS_PPGREFILL,
+	MEM_CGROUP_EVENTS_PPGSCAN,
+	MEM_CGROUP_EVENTS_PPGSTEAL,
 	MEM_CGROUP_EVENTS_NSTATS,
 	/* default hierarchy events */
 	MEMCG_LOW = MEM_CGROUP_EVENTS_NSTATS,
@@ -541,6 +545,53 @@ static inline bool task_in_memcg_oom(struct task_struct *p)
 
 bool mem_cgroup_oom_synchronize(bool wait);
 
+extern struct mem_cgroup *mem_cgroup_top_ancestor(struct mem_cgroup *root,
+					struct lruvec *lruvec);
+
+static inline void
+mem_cgroup_count_top_ancestor_events(struct mem_cgroup *root,
+				struct lruvec *lruvec,
+				enum mem_cgroup_events_index idx,
+				int val)
+{
+	struct mem_cgroup *memcg;
+
+	if (!root)
+		root = root_mem_cgroup;
+	memcg = mem_cgroup_top_ancestor(root, lruvec);
+	if (!memcg)
+		return;
+	this_cpu_add(memcg->stat->events[idx], val);
+}
+
+static inline void count_mem_cgroup_vm_events(struct mem_cgroup *memcg,
+				struct lruvec *lruvec,
+				enum mem_cgroup_events_index index,
+				int val)
+{
+	if (mem_cgroup_disabled())
+		return;
+	switch (index) {
+	case MEM_CGROUP_EVENTS_PGOUTRUN:
+	case MEM_CGROUP_EVENTS_ALLOCSTALL:
+	case MEM_CGROUP_EVENTS_KSWAPD_STEAL:
+	case MEM_CGROUP_EVENTS_PG_PGSTEAL:
+	case MEM_CGROUP_EVENTS_KSWAPD_PGSCAN:
+	case MEM_CGROUP_EVENTS_PG_PGSCAN:
+	case MEM_CGROUP_EVENTS_PGREFILL:
+		this_cpu_add(memcg->stat->events[index], val);
+		break;
+	case MEM_CGROUP_EVENTS_PPGREFILL:
+	case MEM_CGROUP_EVENTS_PPGSCAN:
+	case MEM_CGROUP_EVENTS_PPGSTEAL:
+		mem_cgroup_count_top_ancestor_events(memcg, lruvec,
+			index, val);
+		break;
+	default:
+		BUG();
+	}
+}
+
 #ifdef CONFIG_MEMCG_SWAP
 extern int do_swap_account;
 #endif
@@ -587,15 +638,6 @@ static inline void mem_cgroup_dec_page_stat(struct page *page,
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
 						gfp_t gfp_mask,
 						unsigned long *total_scanned);
-
-/* background reclaim stats */
-void mem_cgroup_kswapd_steal(struct mem_cgroup *memcg, int val);
-void mem_cgroup_pg_steal(struct mem_cgroup *memcg, int val);
-void mem_cgroup_kswapd_pgscan(struct mem_cgroup *memcg, int val);
-void mem_cgroup_pg_pgscan(struct mem_cgroup *memcg, int val);
-void mem_cgroup_pgrefill(struct mem_cgroup *memcg, int val);
-void mem_cgroup_pg_outrun(struct mem_cgroup *memcg, int val);
-void mem_cgroup_alloc_stall(struct mem_cgroup *memcg, int val);
 
 
 static inline void mem_cgroup_count_vm_event(struct mm_struct *mm,
@@ -884,47 +926,18 @@ static inline void mem_cgroup_split_huge_fixup(struct page *head)
 {
 }
 
-
-/* background reclaim stats */
-static inline void mem_cgroup_kswapd_steal(struct mem_cgroup *memcg,
-					  int val)
-{
-}
-
-static inline void mem_cgroup_pg_steal(struct mem_cgroup *memcg,
-					int val)
-{
-}
-
-static inline void mem_cgroup_kswapd_pgscan(struct mem_cgroup *memcg,
-					int val)
-{
-}
-
-static inline void mem_cgroup_pg_pgscan(struct mem_cgroup *memcg,
-					int val)
-{
-}
-
-static inline void mem_cgroup_pgrefill(struct mem_cgroup *memcg,
-					int val)
-{
-}
-
-static inline void mem_cgroup_pg_outrun(struct mem_cgroup *memcg,
-					int val)
-{
-}
-
-static inline void mem_cgroup_alloc_stall(struct mem_cgroup *memcg,
-					int val)
-{
-}
-
 static inline
 void mem_cgroup_count_vm_event(struct mm_struct *mm, enum vm_event_item idx)
 {
 }
+
+static inline void count_mem_cgroup_vm_events(struct mem_cgroup *memcg,
+				struct lruvec *lruvec,
+				enum mem_cgroup_events_index index,
+				int val)
+{
+}
+
 #endif /* CONFIG_MEMCG */
 
 #ifdef CONFIG_CGROUP_WRITEBACK

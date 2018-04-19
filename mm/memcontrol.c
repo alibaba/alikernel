@@ -119,13 +119,16 @@ static const char * const mem_cgroup_events_names[] = {
 	"pgpgout",
 	"pgfault",
 	"pgmajfault",
+	"pgoutrun",
+	"allocstall",
 	"kswapd_steal",
 	"pg_pgsteal",
 	"kswapd_pgscan",
 	"pg_pgscan",
 	"pgrefill",
-	"pgoutrun",
-	"allocstall",
+	"ppgrefill",
+	"ppgscan",
+	"ppgsteal",
 };
 
 static const char * const mem_cgroup_lru_names[] = {
@@ -699,36 +702,6 @@ static void mem_cgroup_charge_statistics(struct mem_cgroup *memcg,
 	}
 
 	__this_cpu_add(memcg->stat->nr_page_events, nr_pages);
-}
-
-void mem_cgroup_kswapd_steal(struct mem_cgroup *mem, int val)
-{
-	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_KSWAPD_STEAL], val);
-}
-
-void mem_cgroup_pg_steal(struct mem_cgroup *mem, int val)
-{
-	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_PG_PGSTEAL], val);
-}
-
-void mem_cgroup_kswapd_pgscan(struct mem_cgroup *mem, int val)
-{
-	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_KSWAPD_PGSCAN], val);
-}
-
-void mem_cgroup_pg_pgscan(struct mem_cgroup *mem, int val)
-{
-	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_PG_PGSCAN], val);
-}
-
-void mem_cgroup_pgrefill(struct mem_cgroup *mem, int val)
-{
-	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_PGREFILL], val);
-}
-
-void mem_cgroup_pg_outrun(struct mem_cgroup *mem, int val)
-{
-	this_cpu_add(mem->stat->events[MEM_CGROUP_EVENTS_PGOUTRUN], val);
 }
 
 void mem_cgroup_alloc_stall(struct mem_cgroup *mem, int val)
@@ -3344,7 +3317,7 @@ static int memcg_stat_show(struct seq_file *m, void *v)
 		seq_printf(m, "total_%s %llu\n", mem_cgroup_stat_names[i], val);
 	}
 
-	for (i = 0; i < MEM_CGROUP_EVENTS_NSTATS; i++) {
+	for (i = 0; i < MEM_CGROUP_EVENTS_PPGREFILL; i++) {
 		unsigned long long val = 0;
 
 		for_each_mem_cgroup_tree(mi, memcg)
@@ -5598,6 +5571,10 @@ static int memory_stat_show(struct seq_file *m, void *v)
 		   (u64)stat[MEMCG_SLAB_RECLAIMABLE] * PAGE_SIZE);
 	seq_printf(m, "slab_unreclaimable %llu\n",
 		   (u64)stat[MEMCG_SLAB_UNRECLAIMABLE] * PAGE_SIZE);
+
+	for (i = MEM_CGROUP_EVENTS_PGOUTRUN; i < MEM_CGROUP_EVENTS_NSTATS; i++)
+		seq_printf(m, "%s %lu\n", mem_cgroup_events_names[i],
+		   mem_cgroup_read_events(memcg, i));
 
 	/* Accumulated memory events */
 

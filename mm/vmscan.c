@@ -1764,22 +1764,23 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, nr_taken);
 	reclaim_stat->recent_scanned[file] += nr_taken;
 
-#ifdef CONFIG_MEMCG
-	if (sc->target_mem_cgroup) {
-		if (current_is_kswapd())
-			mem_cgroup_kswapd_pgscan(sc->target_mem_cgroup,
-				nr_scanned);
-		else
-			mem_cgroup_pg_pgscan(sc->target_mem_cgroup, nr_scanned);
-	}
-#endif
-
 	if (global_reclaim(sc)) {
 		__mod_node_page_state(pgdat, NR_PAGES_SCANNED, nr_scanned);
 		if (current_is_kswapd())
 			__count_vm_events(PGSCAN_KSWAPD, nr_scanned);
 		else
 			__count_vm_events(PGSCAN_DIRECT, nr_scanned);
+	} else {
+
+		if (current_is_kswapd()) {
+			count_mem_cgroup_vm_events(sc->target_mem_cgroup,
+			lruvec, MEM_CGROUP_EVENTS_KSWAPD_PGSCAN, nr_scanned);
+		} else {
+			count_mem_cgroup_vm_events(sc->target_mem_cgroup,
+			lruvec, MEM_CGROUP_EVENTS_PG_PGSCAN, nr_scanned);
+		}
+		count_mem_cgroup_vm_events(sc->target_mem_cgroup, lruvec,
+			MEM_CGROUP_EVENTS_PPGSCAN, nr_scanned);
 	}
 	spin_unlock_irq(&pgdat->lru_lock);
 
@@ -1799,14 +1800,15 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 		else
 			__count_vm_events(PGSTEAL_DIRECT, nr_reclaimed);
 	} else {
-#ifdef CONFIG_MEMCG
-		if (current_is_kswapd())
-			mem_cgroup_kswapd_steal(sc->target_mem_cgroup,
-				nr_reclaimed);
-		else
-			mem_cgroup_pg_steal(sc->target_mem_cgroup,
-				nr_reclaimed);
-#endif
+		if (current_is_kswapd()) {
+			count_mem_cgroup_vm_events(sc->target_mem_cgroup,
+			lruvec, MEM_CGROUP_EVENTS_KSWAPD_STEAL, nr_reclaimed);
+		} else {
+			count_mem_cgroup_vm_events(sc->target_mem_cgroup,
+			lruvec, MEM_CGROUP_EVENTS_PG_PGSTEAL, nr_reclaimed);
+		}
+		count_mem_cgroup_vm_events(sc->target_mem_cgroup, lruvec,
+			MEM_CGROUP_EVENTS_PPGSTEAL, nr_reclaimed);
 	}
 
 	putback_inactive_pages(lruvec, &page_list);
@@ -1974,12 +1976,13 @@ static void shrink_active_list(unsigned long nr_to_scan,
 
 	if (global_reclaim(sc))
 		__mod_node_page_state(pgdat, NR_PAGES_SCANNED, nr_scanned);
+	else {
+		count_mem_cgroup_vm_events(sc->target_mem_cgroup, lruvec,
+				MEM_CGROUP_EVENTS_PGREFILL, nr_scanned);
+		count_mem_cgroup_vm_events(sc->target_mem_cgroup, lruvec,
+				MEM_CGROUP_EVENTS_PPGREFILL, nr_scanned);
+	}
 	__count_vm_events(PGREFILL, nr_scanned);
-
-#ifdef CONFIG_MEMCG
-	if (sc->target_mem_cgroup)
-		mem_cgroup_pgrefill(sc->target_mem_cgroup, nr_scanned);
-#endif
 
 	spin_unlock_irq(&pgdat->lru_lock);
 
@@ -2769,10 +2772,10 @@ retry:
 
 	if (global_reclaim(sc))
 		__count_zid_vm_events(ALLOCSTALL, sc->reclaim_idx, 1);
-#ifdef CONFIG_MEMCG
-	else
-		mem_cgroup_alloc_stall(sc->target_mem_cgroup, 1);
-#endif
+	else {
+		count_mem_cgroup_vm_events(sc->target_mem_cgroup, NULL,
+			MEM_CGROUP_EVENTS_ALLOCSTALL, 1);
+	}
 
 	do {
 		vmpressure_prio(sc->gfp_mask, sc->target_mem_cgroup,
@@ -3476,7 +3479,8 @@ static unsigned long balance_mem_cgroup_pgdat(struct mem_cgroup *mem_cont,
 	};
 
 loop_again:
-	mem_cgroup_pg_outrun(mem_cont, 1);
+	count_mem_cgroup_vm_events(mem_cont, NULL,
+		MEM_CGROUP_EVENTS_PGOUTRUN, 1);
 	total_scanned = 0;
 	start_node = 0;
 
